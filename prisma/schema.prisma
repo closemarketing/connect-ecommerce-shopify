@@ -1,0 +1,101 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Shop {
+  id        Int       @id @default(autoincrement())
+  domain    String    @unique // integra-clientify.myshopify.com
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  
+  sessions  Session[]
+  orders    Order[]
+}
+
+model Session {
+  id            String    @id
+  shop          String    // Dominio de la tienda (requerido por Shopify)
+  shopId        Int?      // FK opcional a Shop
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+  
+  shopRecord    Shop?     @relation(fields: [shopId], references: [id], onDelete: SetNull)
+
+  @@index([shop])
+  @@index([shopId])
+  @@unique([shop, isOnline])  // Solo una sesión offline por tienda
+}
+
+model QRCode {
+  id               Int      @id @default(autoincrement())
+  title            String
+  shop             String
+  productId        String
+  productHandle    String
+  productVariantId String
+  destination      String
+  scans            Int      @default(0)
+  createdAt        DateTime @default(now())
+}
+
+model Integration {
+  id          Int                      @id @default(autoincrement())
+  name        String                   @unique
+  displayName String
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  credentials IntegrationCredential[]
+}
+
+model IntegrationCredential {
+  id            Int         @id @default(autoincrement())
+  sessionId     String      // Identificador de la tienda (shop)
+  integrationId Int
+  key           String      // Nombre de la credencial (ej: "apikey", "url")
+  value         String      // Valor de la credencial
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, integrationId, key])
+  @@index([sessionId])
+}
+
+model Order {
+  id            Int      @id @default(autoincrement())
+  orderId       String   @unique // ID del pedido de Shopify
+  orderNumber   String   // Número de pedido visible
+  shopId        Int      // FK a Shop
+  body          String   @db.LongText // JSON completo del webhook
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([orderId])
+}
