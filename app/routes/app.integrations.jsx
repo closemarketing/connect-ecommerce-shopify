@@ -60,13 +60,46 @@ export async function action({ request }) {
     }
 
     try {
+      // Validar credenciales de Clientify antes de guardar
+      if (integrationName === "clientify" && credentials.apikey) {
+        console.log("🔍 Validando API key de Clientify...");
+        
+        try {
+          const validationResponse = await fetch("https://api.clientify.net/v1/contacts/", {
+            method: "GET",
+            headers: {
+              "Authorization": `Token ${credentials.apikey}`,
+              "Content-Type": "application/json",
+            },
+          });
+
+          if (!validationResponse.ok) {
+            console.error(`❌ Validación fallida: ${validationResponse.status}`);
+            return { 
+              success: false, 
+              error: `API Key inválida. Respuesta de Clientify: ${validationResponse.status}` 
+            };
+          }
+
+          console.log("✅ API Key de Clientify validada correctamente");
+        } catch (validationError) {
+          console.error("❌ Error al validar API key:", validationError);
+          return { 
+            success: false, 
+            error: "No se pudo conectar con Clientify. Verifica tu API Key e intenta de nuevo." 
+          };
+        }
+      }
+
+      // Guardar credenciales si la validación fue exitosa
       await saveCredentials(shop, integration.id, credentials);
       return { success: true, message: "Credenciales guardadas correctamente" };
     } catch (error) {
-      throw new Response(JSON.stringify({ error: error.message }), { 
-        status: 500,
-        headers: { "Content-Type": "application/json" }
-      });
+      console.error("❌ Error guardando credenciales:", error);
+      return { 
+        success: false, 
+        error: error.message || "Error al guardar las credenciales" 
+      };
     }
   }
 
@@ -85,6 +118,7 @@ export default function Integrations() {
   const [formData, setFormData] = useState({});
   const [showSaveBar, setShowSaveBar] = useState(false);
   const [currentIntegration, setCurrentIntegration] = useState("clientify");
+  const [isEditing, setIsEditing] = useState(false);
 
   // Cargar credenciales existentes
   useEffect(() => {
@@ -100,6 +134,7 @@ export default function Integrations() {
     if (actionData?.success) {
       shopify.toast.show(actionData.message);
       setShowSaveBar(false);
+      setIsEditing(false);
     } else if (actionData?.error) {
       shopify.toast.show(actionData.error, { isError: true });
     }
@@ -205,15 +240,39 @@ export default function Integrations() {
                     onInput={(e) => handleInputChange("clientify", "apikey", e.target.value)}
                     helpText="Obtén tu API Key desde el panel de Clientify en Configuración > API"
                     type="password"
+                    disabled={hasClientifyCredentials && !isEditing}
                   >
                   </s-text-field>
 
-                  {hasClientifyCredentials && (
+                  {hasClientifyCredentials && !isEditing ? (
+                    <s-inline-stack gap="300">
+                      <s-inline-stack gap="200">
+                        <s-icon name="checkCircle" tone="success"></s-icon>
+                        <s-text variant="bodyMd" tone="success">
+                          Conexión establecida
+                        </s-text>
+                      </s-inline-stack>
+                      <s-button onClick={() => setIsEditing(true)}>
+                        Editar API Key
+                      </s-button>
+                    </s-inline-stack>
+                  ) : (
                     <s-inline-stack gap="200">
-                      <s-icon name="checkCircle" tone="success"></s-icon>
-                      <s-text variant="bodyMd" tone="success">
-                        Conexión establecida
-                      </s-text>
+                      <s-button variant="primary" onClick={handleSave}>
+                        Guardar API Key
+                      </s-button>
+                      {hasClientifyCredentials && (
+                        <s-button onClick={() => {
+                          setIsEditing(false);
+                          const initialData = {};
+                          if (allCredentials[currentIntegration]) {
+                            initialData[currentIntegration] = allCredentials[currentIntegration].credentials;
+                          }
+                          setFormData(initialData);
+                        }}>
+                          Cancelar
+                        </s-button>
+                      )}
                     </s-inline-stack>
                   )}
                 </s-block-stack>

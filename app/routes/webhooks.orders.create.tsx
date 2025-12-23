@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import db from "../db.server";
 import { validateWebhookHmac } from "../utils/webhook-validator.server";
+import { syncShopifyOrderToClientify } from "../services/sync-order-to-clientify.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   console.log("🚀 WEBHOOK CREATE - Route hit!", new Date().toISOString());
@@ -45,6 +46,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       console.log(`📦 Created new shop record for ${shop}`);
     }
 
+    // Guardar pedido en BD
     await db.order.create({
       data: {
         orderId: payload.id.toString(),
@@ -54,6 +56,38 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
     });
     console.log(`✅ Order ${payload.order_number} saved to database`);
+
+    // Obtener credenciales de Clientify para esta tienda
+    const clientifyCredentials = await db.integrationCredential.findFirst({
+      where: {
+        sessionId: shop, // Buscar por shop domain
+        integration: {
+          name: "clientify"
+        },
+        key: "apikey"
+      }
+    });
+
+    if (clientifyCredentials) {
+      console.log(`🔄 Iniciando sincronización con Clientify...`);
+      
+      // Sincronizar con Clientify
+      const syncResult = await syncShopifyOrderToClientify(
+        payload,
+        clientifyCredentials.value
+      );
+
+      if (syncResult.success) {
+        console.log(`✅ Pedido sincronizado con Clientify exitosamente`);
+        console.log(`   - Contacto ID: ${syncResult.contactId}`);
+        console.log(`   - Productos IDs: ${syncResult.productIds?.join(", ")}`);
+        console.log(`   - Oportunidad ID: ${syncResult.dealId}`);
+      } else {
+        console.error(`❌ Error sincronizando con Clientify: ${syncResult.error}`);
+      }
+    } else {
+      console.warn(`⚠️ No se encontraron credenciales de Clientify para ${shop}. Pedido guardado pero no sincronizado.`);
+    }
     
     return new Response(null, { status: 200 });
   } catch (error) {
