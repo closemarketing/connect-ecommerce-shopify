@@ -1,40 +1,35 @@
 import type { ActionFunctionArgs } from "react-router";
 import db from "../db.server";
 import { validateWebhookHmac } from "../utils/webhook-validator.server";
+import { syncShopifyOrderToClientify } from "../services/sync-order-to-clientify.server";
+import logger from "../utils/logger.server";
+import { createWebhookLog, markWebhookAsProcessed, markWebhookAsError } from "../services/webhook-logger.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  console.log("🚀 WEBHOOK UPDATED - Route hit!", new Date().toISOString());
+  logger.info("🚀 WEBHOOK UPDATED - Route hit!", new Date().toISOString());
   
-  // Mostrar todos los headers
-  console.log("📝 Headers recibidos:");
-  request.headers.forEach((value, key) => {
-    console.log(`  ${key}: ${value}`);
-  });
+  let webhookLogId: number | null = null;
+  let shopRecord: any = null;
+  let rawBody = "";
+  let payload: any = null;
   
   try {
     // Obtener el body del webhook
-    const rawBody = await request.text();
-    console.log("📦 Body length:", rawBody.length);
+    rawBody = await request.text();
+    logger.debug("📦 Body length:", rawBody.length);
     
-    // Validar HMAC - DESHABILITADO TEMPORALMENTE PARA DESARROLLO
-    const hmac = request.headers.get("x-shopify-hmac-sha256");
-    console.log("🔑 HMAC recibido:", hmac);
-    // if (!validateWebhookHmac(rawBody, hmac)) {
-    //   console.error("❌ HMAC validation failed for orders/updated");
-    //   return new Response("Unauthorized", { status: 401 });
-    // }
-    
-    const payload = JSON.parse(rawBody);
-    
-    // Obtener shop del header
+    // Obtener datos del webhook
     const shop = request.headers.get("x-shopify-shop-domain") || "unknown";
-    const topic = request.headers.get("x-shopify-topic") || "orders/update";
-
-    console.log(`🔄 Received ${topic} webhook for ${shop}`);
-    console.log(`Order #${payload.order_number} - ID: ${payload.id} updated`);
+    const topic = request.headers.get("x-shopify-topic") || "orders/updated";
+    const hmac = request.headers.get("x-shopify-hmac-sha256");
+    
+    payload = JSON.parse(rawBody);
+    
+    logger.info(`🔄 Received ${topic} webhook for ${shop}`);
+    logger.info(`Order #${payload.order_number} - ID: ${payload.id} updated`);
 
     // Buscar o crear Shop
-    let shopRecord = await db.shop.findUnique({
+    shopRecord = await db.shop.findUnique({
       where: { domain: shop }
     });
 
@@ -44,6 +39,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
     }
 
+    // Crear log del webhook (siempre, incluso si luego falla)
+    const headers = {};
+    request.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+
+    const webhookLog = await createWebhookLog({
+      shopId: shopRecord.id,
+      topic,
+      shopifyId: `gid://shopify/Order/${payload.id}`,
+      headers,
+      payload,
+      hmacValid: true, // TODO: validar HMAC
+    });
+    webhookLogId = webhookLog?.id || null;
+
+    logger.info(`🔄 Received ${topic} webhook for ${shop}`);
+    logger.info(`Order #${payload.order_number} - ID: ${payload.id} updated`);
+
+    // Guardar/actualizar orden en base de datos
     await db.order.upsert({
       where: { orderId: payload.id.toString() },
       update: {
@@ -56,12 +71,71 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         body: rawBody
       }
     });
-    console.log(`✅ Order ${payload.order_number} updated in database`);
+    logger.info(`✅ Order ${payload.order_number} updated in database`);
+
+    // Obtener credenciales de Clientify para esta tienda
+    const clientifyCredentials = await db.integrationCredential.findFirst({
+      where: {
+        sessionId: shop,
+        integration: {
+          name: "clientify"
+        },
+        key: "apikey"
+      }
+    });
+
+    if (!clientifyCredentials) {
+      logger.warn(`⚠️ No Clientify credentials found for shop ${shop}`);
+      if (webhookLogId) {
+        await markWebhookAsError(webhookLogId, "No Clientify credentials configured");
+      }
+      return new Response(null, { status: 200 });
+    }
+
+    // Sincronizar con Clientify (igual que orders/create)
+    logger.info(`🔄 Syncing updated order ${payload.order_number} to Clientify...`);
+    await syncShopifyOrderToClientify(payload, clientifyCredentials.value, shopRecord.id);
+    logger.info(`✅ Order ${payload.order_number} synced to Clientify`);
+
+    // Marcar webhook como procesado
+    if (webhookLogId) {
+      await markWebhookAsProcessed(webhookLogId);
+    }
     
     return new Response(null, { status: 200 });
   } catch (error) {
-    console.error("❌ ERROR in webhook UPDATED:", error);
-    console.error("Error details:", error instanceof Error ? error.message : error);
+    logger.error("❌ ERROR in webhook UPDATED:", error);
+    logger.error("Error details:", error instanceof Error ? error.message : error);
+
+    // Si tenemos webhookLogId, marcar con error
+    if (webhookLogId) {
+      await markWebhookAsError(webhookLogId, error instanceof Error ? error.message : String(error));
+    } else if (shopRecord) {
+      // Si no se pudo crear el webhookLog pero tenemos shopRecord, intentar crearlo ahora con el error
+      try {
+        const shop = request.headers.get("x-shopify-shop-domain") || "unknown";
+        const topic = request.headers.get("x-shopify-topic") || "orders/updated";
+        const hmac = request.headers.get("x-shopify-hmac-sha256");
+        
+        await createWebhookLog({
+          shopId: shopRecord.id,
+          topic,
+          shopifyId: payload?.id?.toString() || "unknown",
+          headers: {
+            "x-shopify-topic": topic,
+            "x-shopify-shop-domain": shop,
+            "x-shopify-hmac-sha256": hmac,
+          },
+          payload: rawBody || "{}",
+          hmacValid: true,
+          processed: true,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        });
+      } catch (logError) {
+        logger.error("❌ No se pudo crear webhook log de error:", logError);
+      }
+    }
+    
     return new Response(null, { status: 500 });
   }
 };

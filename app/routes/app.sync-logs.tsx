@@ -15,13 +15,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const syncType = url.searchParams.get("type") || "all";
   const status = url.searchParams.get("status") || "all";
 
-  // Buscar shop
-  const shop = await prisma.shop.findUnique({
+  // Buscar o crear shop
+  let shop = await prisma.shop.findUnique({
     where: { domain: session.shop },
   });
 
   if (!shop) {
-    return { logs: [], total: 0, page, limit, shop: session.shop };
+    shop = await prisma.shop.create({
+      data: { domain: session.shop },
+    });
   }
 
   // Construir filtros
@@ -86,8 +88,8 @@ export default function SyncLogs() {
     setSearchParams(newParams);
   };
 
-  const totalSuccess = stats.filter((s: any) => s.status === "SUCCESS").reduce((acc: number, s: any) => acc + s._count, 0);
-  const totalErrors = stats.filter((s: any) => s.status === "ERROR").reduce((acc: number, s: any) => acc + s._count, 0);
+  const totalSuccess = (stats || []).filter((s: any) => s.status === "SUCCESS").reduce((acc: number, s: any) => acc + s._count, 0);
+  const totalErrors = (stats || []).filter((s: any) => s.status === "ERROR").reduce((acc: number, s: any) => acc + s._count, 0);
 
   return (
     <s-page>
@@ -114,7 +116,7 @@ export default function SyncLogs() {
 
           <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
             <select
-              value={filters.syncType}
+              value={filters?.syncType || "all"}
               onChange={(e) => handleFilterChange("type", e.target.value)}
               style={{ flex: 1, padding: "6px", fontSize: "13px", borderRadius: "4px", border: "1px solid #ccc" }}
             >
@@ -125,7 +127,7 @@ export default function SyncLogs() {
               <option value="ORDER">Order</option>
             </select>
             <select
-              value={filters.status}
+              value={filters?.status || "all"}
               onChange={(e) => handleFilterChange("status", e.target.value)}
               style={{ flex: 1, padding: "6px", fontSize: "13px", borderRadius: "4px", border: "1px solid #ccc" }}
             >

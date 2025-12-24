@@ -15,13 +15,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const topic = url.searchParams.get("topic") || "all";
   const processed = url.searchParams.get("processed") || "all";
 
-  // Buscar shop
-  const shop = await prisma.shop.findUnique({
+  // Buscar o crear shop
+  let shop = await prisma.shop.findUnique({
     where: { domain: session.shop },
   });
 
   if (!shop) {
-    return { webhooks: [], total: 0, page, limit, shop: session.shop };
+    shop = await prisma.shop.create({
+      data: { domain: session.shop },
+    });
   }
 
   // Construir filtros
@@ -116,17 +118,17 @@ export default function WebhookLogs() {
 
           <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
             <select
-              value={filters.topic}
+              value={filters?.topic || "all"}
               onChange={(e) => handleFilterChange("topic", e.target.value)}
               style={{ flex: 1, padding: "6px", fontSize: "13px", borderRadius: "4px", border: "1px solid #ccc" }}
             >
               <option value="all">Todos los topics</option>
-              {topics.map((t: any) => (
+              {(topics || []).map((t: any) => (
                 <option key={t.topic} value={t.topic}>{t.topic} ({t._count})</option>
               ))}
             </select>
             <select
-              value={filters.processed}
+              value={filters?.processed || "all"}
               onChange={(e) => handleFilterChange("processed", e.target.value)}
               style={{ flex: 1, padding: "6px", fontSize: "13px", borderRadius: "4px", border: "1px solid #ccc" }}
             >
