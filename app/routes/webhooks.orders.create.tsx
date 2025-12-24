@@ -2,26 +2,26 @@ import type { ActionFunctionArgs } from "react-router";
 import db from "../db.server";
 import { validateWebhookHmac } from "../utils/webhook-validator.server";
 import { syncShopifyOrderToClientify } from "../services/sync-order-to-clientify.server";
+import { logOrderSync, logSyncError } from "../services/sync-logger.server";
+import { createWebhookLog, markWebhookAsProcessed, markWebhookAsError } from "../services/webhook-logger.server";
+import logger from "../utils/logger.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  console.log("🚀 WEBHOOK CREATE - Route hit!", new Date().toISOString());
+  logger.info("🚀 WEBHOOK CREATE - Route hit!", { timestamp: new Date().toISOString() });
   
-  // Mostrar todos los headers
-  console.log("📝 Headers recibidos:");
-  request.headers.forEach((value, key) => {
-    console.log(`  ${key}: ${value}`);
-  });
+  let webhookLogId: number | null = null;
   
   try {
     // Obtener el body del webhook
     const rawBody = await request.text();
-    console.log("📦 Body length:", rawBody.length);
+    logger.debug("📦 Body length:", rawBody.length);
     
     // Validar HMAC - DESHABILITADO TEMPORALMENTE PARA DESARROLLO
     const hmac = request.headers.get("x-shopify-hmac-sha256");
-    console.log("🔑 HMAC recibido:", hmac);
-    // if (!validateWebhookHmac(rawBody, hmac)) {
-    //   console.error("❌ HMAC validation failed for orders/create");
+    logger.debug("🔑 HMAC recibido:", hmac);
+    // const hmacValid = validateWebhookHmac(rawBody, hmac);
+    // if (!hmacValid) {
+    //   logger.error("❌ HMAC validation failed for orders/create");
     //   return new Response("Unauthorized", { status: 401 });
     // }
     
@@ -31,8 +31,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const shop = request.headers.get("x-shopify-shop-domain") || "unknown";
     const topic = request.headers.get("x-shopify-topic") || "orders/create";
 
-    console.log(`✅ Received ${topic} webhook for ${shop}`);
-    console.log(`Order #${payload.order_number} - ID: ${payload.id}`);
+    logger.info(`✅ Received ${topic} webhook for ${shop}`);
+    logger.info(`Order #${payload.order_number} - ID: ${payload.id}`);
 
     // Buscar o crear Shop
     let shopRecord = await db.shop.findUnique({
@@ -43,19 +43,44 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       shopRecord = await db.shop.create({
         data: { domain: shop }
       });
-      console.log(`📦 Created new shop record for ${shop}`);
+      logger.info(`📦 Created new shop record for ${shop}`);
     }
 
-    // Guardar pedido en BD
-    await db.order.create({
-      data: {
+    // Registrar webhook recibido
+    const webhookLog = await createWebhookLog({
+      shopId: shopRecord.id,
+      topic,
+      shopifyId: payload.id?.toString(),
+      headers: {
+        "x-shopify-topic": topic,
+        "x-shopify-shop-domain": shop,
+        "x-shopify-hmac-sha256": hmac,
+        "x-shopify-api-version": request.headers.get("x-shopify-api-version"),
+      },
+      payload: rawBody,
+      hmacValid: true, // hmacValid
+      processed: false,
+    });
+    webhookLogId = webhookLog?.id || null;
+
+    // Guardar o actualizar pedido en BD
+    await db.order.upsert({
+      where: {
+        orderId: payload.id.toString()
+      },
+      update: {
+        orderNumber: payload.order_number.toString(),
+        body: rawBody,
+        updatedAt: new Date()
+      },
+      create: {
         orderId: payload.id.toString(),
         orderNumber: payload.order_number.toString(),
         shopId: shopRecord.id,
         body: rawBody
       }
     });
-    console.log(`✅ Order ${payload.order_number} saved to database`);
+    logger.info(`✅ Order ${payload.order_number} saved to database`);
 
     // Obtener credenciales de Clientify para esta tienda
     const clientifyCredentials = await db.integrationCredential.findFirst({
@@ -69,30 +94,73 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
 
     if (clientifyCredentials) {
-      console.log(`🔄 Iniciando sincronización con Clientify...`);
+      logger.info(`🔄 Iniciando sincronización con Clientify...`);
       
       // Sincronizar con Clientify
       const syncResult = await syncShopifyOrderToClientify(
         payload,
-        clientifyCredentials.value
+        clientifyCredentials.value,
+        shopRecord.id
       );
 
       if (syncResult.success) {
-        console.log(`✅ Pedido sincronizado con Clientify exitosamente`);
-        console.log(`   - Contacto ID: ${syncResult.contactId}`);
-        console.log(`   - Productos IDs: ${syncResult.productIds?.join(", ")}`);
-        console.log(`   - Oportunidad ID: ${syncResult.dealId}`);
+        logger.info(`✅ Pedido sincronizado con Clientify exitosamente`);
+        logger.info(`   - Contacto ID: ${syncResult.contactId}`);
+        logger.info(`   - Productos IDs: ${syncResult.productIds?.join(", ")}`);
+        logger.info(`   - Oportunidad ID: ${syncResult.dealId}`);
+
+        // Registrar sincronización exitosa
+        await logOrderSync(
+          shopRecord.id,
+          payload.id.toString(),
+          syncResult.dealId!,
+          { orderNumber: payload.order_number, productCount: syncResult.productIds?.length },
+          syncResult
+        );
+
+        // Marcar webhook como procesado
+        if (webhookLogId) {
+          await markWebhookAsProcessed(webhookLogId);
+        }
       } else {
-        console.error(`❌ Error sincronizando con Clientify: ${syncResult.error}`);
+        logger.error(`❌ Error sincronizando con Clientify: ${syncResult.error}`);
+        
+        // Registrar error de sincronización
+        await logSyncError(
+          shopRecord.id,
+          "ORDER",
+          payload.id.toString(),
+          syncResult.error || "Error desconocido",
+          { orderNumber: payload.order_number }
+        );
+
+        // Marcar webhook con error
+        if (webhookLogId) {
+          await markWebhookAsError(webhookLogId, syncResult.error || "Error desconocido");
+        }
       }
     } else {
-      console.warn(`⚠️ No se encontraron credenciales de Clientify para ${shop}. Pedido guardado pero no sincronizado.`);
+      logger.warn(`⚠️ No se encontraron credenciales de Clientify para ${shop}. Pedido guardado pero no sincronizado.`);
+      
+      // Marcar webhook como procesado (aunque no se sincronizó)
+      if (webhookLogId) {
+        await markWebhookAsProcessed(webhookLogId);
+      }
     }
     
     return new Response(null, { status: 200 });
   } catch (error) {
-    console.error("❌ ERROR in webhook CREATE:", error);
-    console.error("Error details:", error instanceof Error ? error.message : error);
+    logger.error("❌ ERROR in webhook CREATE:", error);
+    logger.error("Error details:", error instanceof Error ? error.message : error);
+    
+    // Marcar webhook con error
+    if (webhookLogId) {
+      await markWebhookAsError(
+        webhookLogId,
+        error instanceof Error ? error.message : "Error desconocido"
+      );
+    }
+    
     return new Response(null, { status: 500 });
   }
 };

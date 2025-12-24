@@ -21,6 +21,8 @@ model Shop {
   
   sessions  Session[]
   orders    Order[]
+  syncLogs  SyncLog[]
+  webhookLogs WebhookLog[]
 }
 
 model Session {
@@ -86,4 +88,57 @@ model Order {
 
   @@index([shopId])
   @@index([orderId])
+}
+
+model SyncLog {
+  id            Int      @id @default(autoincrement())
+  shopId        Int      // FK a Shop
+  syncType      SyncType // Tipo de objeto sincronizado
+  shopifyId     String   // ID del objeto en Shopify
+  clientifyId   Int?     // ID resultante en Clientify (null si error)
+  status        SyncStatus // Estado de la sincronización
+  errorMessage  String?  @db.Text // Mensaje de error si aplica
+  requestData   String?  @db.LongText // JSON del request (opcional)
+  responseData  String?  @db.LongText // JSON del response (opcional)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([syncType])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum SyncType {
+  CUSTOMER
+  PRODUCT
+  DEAL
+  ORDER
+}
+
+enum SyncStatus {
+  SUCCESS
+  ERROR
+}
+
+model WebhookLog {
+  id            Int      @id @default(autoincrement())
+  shopId        Int      // FK a Shop
+  topic         String   // Ej: "orders/create", "orders/updated"
+  shopifyId     String?  // ID del objeto en Shopify (extraído del payload)
+  headers       String   @db.Text // JSON de headers relevantes
+  payload       String   @db.LongText // JSON completo del webhook
+  hmacValid     Boolean? // Si se validó el HMAC
+  processed     Boolean  @default(false) // Si se procesó exitosamente
+  errorMessage  String?  @db.Text // Error si hubo al procesar
+  createdAt     DateTime @default(now())
+  
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([topic])
+  @@index([createdAt])
+  @@index([processed])
 }

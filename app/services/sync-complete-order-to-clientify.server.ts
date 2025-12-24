@@ -2,6 +2,7 @@ import { ClientifyService } from "./clientify.server";
 import { syncShopifyCustomerToClientifyContact } from "./sync-customer-to-clientify.server";
 import { syncShopifyLineItemsToClientifyProducts } from "./sync-products-to-clientify.server";
 import { mapShopifyOrderToClientifyDeal } from "./clientify-mapper.server";
+import logger from "../utils/logger.server";
 
 interface OrderSyncResult {
   success: boolean;
@@ -26,33 +27,33 @@ export async function syncCompleteShopifyOrderToClientify(
   apiToken: string
 ): Promise<OrderSyncResult> {
   try {
-    console.log(`🔄 Iniciando sincronización completa del pedido #${order.order_number}...`);
+    logger.info(`🔄 Iniciando sincronización completa del pedido #${order.order_number}...`);
     
     const clientifyService = new ClientifyService({ apiToken });
     
     // Obtener owner ID de la cuenta
     const accountInfo = await clientifyService.getAccountInfo();
     const ownerId = accountInfo.user_id;
-    console.log(`👤 Owner ID: ${ownerId}`);
+    logger.info(`👤 Owner ID: ${ownerId}`);
 
     // PASO 1: Sincronizar customer (contacto)
-    console.log(`\n👤 Paso 1/3: Sincronizando customer...`);
+    logger.info(`\n👤 Paso 1/3: Sincronizando customer...`);
     const { customer } = order;
     const contact = await syncShopifyCustomerToClientifyContact(customer, apiToken);
-    console.log(`✅ Customer sincronizado - Contact ID: ${contact.id}`);
+    logger.info(`✅ Customer sincronizado - Contact ID: ${contact.id}`);
 
     // PASO 2: Sincronizar productos (line_items)
-    console.log(`\n📦 Paso 2/3: Sincronizando ${order.line_items?.length || 0} productos...`);
+    logger.info(`\n📦 Paso 2/3: Sincronizando ${order.line_items?.length || 0} productos...`);
     const syncedProducts = await syncShopifyLineItemsToClientifyProducts(
       order.line_items || [],
       apiToken,
       ownerId
     );
     const productIds = syncedProducts.map(p => p.id);
-    console.log(`✅ Productos sincronizados - IDs: ${productIds.join(', ')}`);
+    logger.info(`✅ Productos sincronizados - IDs: ${productIds.join(', ')}`);
 
     // PASO 3: Sincronizar deal (oportunidad)
-    console.log(`\n💰 Paso 3/3: Sincronizando deal...`);
+    logger.info(`\n💰 Paso 3/3: Sincronizando deal...`);
     
     // Preparar items del deal con los IDs de productos de Clientify
     const dealItems = order.line_items.map((lineItem: any, index: number) => ({
@@ -66,9 +67,9 @@ export async function syncCompleteShopifyOrderToClientify(
     
     // Sincronizar deal
     const dealId = await clientifyService.syncDeal(dealData);
-    console.log(`✅ Deal sincronizado - ID: ${dealId}`);
+    logger.info(`✅ Deal sincronizado - ID: ${dealId}`);
 
-    console.log(`\n🎉 Sincronización completa exitosa para pedido #${order.order_number}`);
+    logger.info(`\n🎉 Sincronización completa exitosa para pedido #${order.order_number}`);
 
     return {
       success: true,
@@ -77,7 +78,7 @@ export async function syncCompleteShopifyOrderToClientify(
       dealId,
     };
   } catch (error) {
-    console.error("❌ Error en sincronización completa:", error);
+    logger.error("❌ Error en sincronización completa:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Error desconocido",

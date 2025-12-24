@@ -25,11 +25,14 @@ export function mapShopifyOrderToClientifyContact(order: any): ClientifyContact 
     taxpayer_identification_number: customer.tax_exemptions?.[0] || billingAddress.company || "",
   };
 
-  // Solo incluir custom_fields si el customer tiene ID
+  // Solo incluir custom_fields con valores no vacíos
+  const customFields = [];
   if (customer.id) {
-    contact.custom_fields = {
-      shopify_customer_id: customer.id.toString(),
-    };
+    customFields.push({ field: "shopify_customer_id", value: customer.id.toString() });
+  }
+
+  if (customFields.length > 0) {
+    contact.custom_fields = customFields;
   }
 
   return contact;
@@ -39,16 +42,24 @@ export function mapShopifyOrderToClientifyContact(order: any): ClientifyContact 
  * Convierte un line_item de Shopify a un producto de Clientify
  */
 export function mapShopifyLineItemToClientifyProduct(lineItem: any): ClientifyProduct {
+  // Solo incluir custom_fields con valores no vacíos
+  const customFields = [];
+  if (lineItem.product_id) {
+    customFields.push({ field: "shopify_product_id", value: lineItem.product_id.toString() });
+  }
+  if (lineItem.variant_id) {
+    customFields.push({ field: "shopify_variant_id", value: lineItem.variant_id.toString() });
+  }
+  if (lineItem.sku) {
+    customFields.push({ field: "shopify_sku", value: lineItem.sku });
+  }
+
   return {
     sku: lineItem.product_id?.toString() || lineItem.sku || "",
     name: lineItem.title || lineItem.name || "",
     description: lineItem.variant_title || lineItem.variant_name || "",
     price: parseFloat(lineItem.price) || 0,
-    custom_fields: {
-      shopify_product_id: lineItem.product_id?.toString() || "",
-      shopify_variant_id: lineItem.variant_id?.toString() || "",
-      shopify_sku: lineItem.sku || "",
-    },
+    custom_fields: customFields.length > 0 ? customFields : undefined,
   };
 }
 
@@ -61,6 +72,30 @@ export function mapShopifyOrderToClientifyDeal(
   productItems: Array<{ product_id: number; quantity: number; price: number }>,
   ownerId?: number
 ): ClientifyDeal {
+  // Solo incluir custom_fields con valores no vacíos
+  const customFields = [];
+  if (order.id) {
+    customFields.push({ field: "shopify_order_id", value: order.id.toString() });
+  }
+  if (order.order_number) {
+    customFields.push({ field: "shopify_order_number", value: order.order_number.toString() });
+  }
+  if (order.financial_status) {
+    customFields.push({ field: "shopify_order_status", value: order.financial_status });
+  }
+  if (order.fulfillment_status) {
+    customFields.push({ field: "shopify_fulfillment_status", value: order.fulfillment_status });
+  }
+  if (order.total_tax) {
+    customFields.push({ field: "shopify_total_tax", value: order.total_tax });
+  }
+  if (order.total_discounts) {
+    customFields.push({ field: "shopify_total_discounts", value: order.total_discounts });
+  }
+  if (order.total_shipping_price_set?.shop_money?.amount) {
+    customFields.push({ field: "shopify_shipping_price", value: order.total_shipping_price_set.shop_money.amount });
+  }
+
   const deal: ClientifyDeal = {
     name: `Pedido #${order.order_number} - ${order.id}`,
     contact_id: contactId,
@@ -68,15 +103,7 @@ export function mapShopifyOrderToClientifyDeal(
     currency: order.currency || "EUR",
     description: `Pedido Shopify #${order.order_number}\nEstado financiero: ${order.financial_status}\nEstado de envío: ${order.fulfillment_status || "pendiente"}`,
     items: productItems,
-    custom_fields: {
-      shopify_order_id: order.id?.toString() || "",
-      shopify_order_number: order.order_number?.toString() || "",
-      shopify_order_status: order.financial_status || "",
-      shopify_fulfillment_status: order.fulfillment_status || "unfulfilled",
-      shopify_total_tax: order.total_tax || "0",
-      shopify_total_discounts: order.total_discounts || "0",
-      shopify_shipping_price: order.total_shipping_price_set?.shop_money?.amount || "0",
-    },
+    custom_fields: customFields.length > 0 ? customFields : undefined,
   };
 
   // Solo incluir owner si está disponible

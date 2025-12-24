@@ -1,4 +1,5 @@
 import { ClientifyService, type ClientifyDeal } from "./clientify.server";
+import logger from "../utils/logger.server";
 
 /**
  * Sincroniza un deal de Shopify con una oportunidad de Clientify
@@ -13,17 +14,17 @@ export async function syncShopifyDealToClientify(
 ): Promise<ClientifyDeal & { id: number }> {
   const clientifyService = new ClientifyService({ apiToken });
   
-  console.log('📤 Datos del deal para Clientify:', dealData);
+  logger.debug('📤 Datos del deal para Clientify:', dealData);
   
   // Crear oportunidad en Clientify
   const dealId = await clientifyService.createDeal(dealData);
-  console.log('✅ Resultado de createDeal - ID:', dealId);
+  logger.debug('✅ Resultado de createDeal - ID:', dealId);
   
   const result = {
     ...dealData,
     id: dealId,
   };
-  console.log('📦 Resultado final del deal:', result);
+  logger.debug('📦 Resultado final del deal:', result);
   
   return result;
 }

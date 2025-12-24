@@ -1,15 +1,29 @@
 import { ClientifyService, type ClientifyProduct } from "./clientify.server";
+import logger from "../utils/logger.server";
 
 /**
  * Mapea un line_item de Shopify a un producto de Clientify
  */
 function mapShopifyLineItemToClientifyProduct(lineItem: any, ownerId: number): ClientifyProduct {
+  // Solo incluir custom_fields con valores no vacíos
+  const customFields = [];
+  if (lineItem.product_id) {
+    customFields.push({ field: "shopify_product_id", value: lineItem.product_id.toString() });
+  }
+  if (lineItem.variant_id) {
+    customFields.push({ field: "shopify_variant_id", value: lineItem.variant_id.toString() });
+  }
+  if (lineItem.sku) {
+    customFields.push({ field: "shopify_sku", value: lineItem.sku });
+  }
+
   return {
     sku: lineItem.sku || lineItem.variant_id?.toString() || "",
     name: lineItem.title || lineItem.name || "",
     description: lineItem.variant_title || lineItem.name || "",
     price: parseFloat(lineItem.price) || 0,
     owner: ownerId,
+    custom_fields: customFields.length > 0 ? customFields : undefined,
   };
 }
 
@@ -30,12 +44,12 @@ export async function syncShopifyLineItemToClientifyProduct(
   
   // Mapear line_item de Shopify a producto de Clientify
   const productData = mapShopifyLineItemToClientifyProduct(lineItem, ownerId);
-  console.log("PRODUCT DATA:", productData);
-  console.log(`📤 Sincronizando producto: ${productData.name} (SKU: ${productData.sku})`);
+  logger.debug("PRODUCT DATA:", productData);
+  logger.info(`📤 Sincronizando producto: ${productData.name} (SKU: ${productData.sku})`);
   
   // Sincronizar producto (busca por variant_id/sku y crea o actualiza)
   const productId = await clientifyService.syncProduct(productData);
-  console.log(`✅ Producto sincronizado con ID: ${productId}`);
+  logger.info(`✅ Producto sincronizado con ID: ${productId}`);
   
   const result = {
     ...productData,
@@ -58,7 +72,7 @@ export async function syncShopifyLineItemsToClientifyProducts(
   apiToken: string,
   ownerId: number
 ): Promise<Array<ClientifyProduct & { id: number }>> {
-  console.log(`📦 Sincronizando ${lineItems.length} productos...`);
+  logger.info(`📦 Sincronizando ${lineItems.length} productos...`);
   
   const syncedProducts: Array<ClientifyProduct & { id: number }> = [];
   
@@ -67,8 +81,8 @@ export async function syncShopifyLineItemsToClientifyProducts(
     syncedProducts.push(product);
   }
   
-  console.log(`✅ Total de productos sincronizados: ${syncedProducts.length}`);
-  console.log(`📋 IDs de productos: ${syncedProducts.map(p => p.id).join(', ')}`);
+  logger.info(`✅ Total de productos sincronizados: ${syncedProducts.length}`);
+  logger.debug(`📋 IDs de productos: ${syncedProducts.map(p => p.id).join(', ')}`);
   
   return syncedProducts;
 }

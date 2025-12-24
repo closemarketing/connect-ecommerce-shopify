@@ -7,5 +7,7 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],
+    reporters: ['verbose'],
+    silent: false, // Cambiar a true para ocultar console.log de winston
   },
 });

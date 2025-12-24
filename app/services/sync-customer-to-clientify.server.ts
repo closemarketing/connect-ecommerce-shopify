@@ -1,4 +1,5 @@
 import { ClientifyService, type ClientifyContact } from "./clientify.server";
+import logger from "../utils/logger.server";
 
 /**
  * Mapea un customer de Shopify a un contacto de Clientify
@@ -50,17 +51,17 @@ export async function syncShopifyCustomerToClientifyContact(
   
   // Mapear customer de Shopify a contacto de Clientify
   const contactData = mapShopifyCustomerToClientifyContact(customer);
-  console.log('📤 Datos mapeados para Clientify:', contactData);
+  logger.debug('📤 Datos mapeados para Clientify:', contactData);
   
   // Sincronizar contacto (busca por email y crea o actualiza)
   const contactId = await clientifyService.syncContact(contactData);
-  console.log('✅ Resultado de syncContact - ID:', contactId);
+  logger.debug('✅ Resultado de syncContact - ID:', contactId);
   
   const result = {
     ...contactData,
     id: contactId,
   };
-  console.log('📦 Resultado final:', result);
+  logger.debug('📦 Resultado final:', result);
   
   return result;
 }
