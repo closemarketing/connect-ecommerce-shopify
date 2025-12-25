@@ -1,13 +1,10 @@
 import { useLoaderData, useActionData, useSubmit, Form } from "react-router";
 import { useState, useEffect } from "react";
 import { useAppBridge } from "@shopify/app-bridge-react";
+import { authenticate } from "../shopify.server";
+import { getIntegrations, getAllCredentialsByShop, saveCredentials, getIntegrationByName } from "../models/Integration.server";
 
 export async function loader({ request }) {
-  const { authenticate } = await import("../shopify.server");
-  const {
-    getIntegrations,
-    getAllCredentialsByShop,
-  } = await import("../models/Integration.server");
   
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
@@ -26,12 +23,6 @@ export async function loader({ request }) {
 }
 
 export async function action({ request }) {
-  const { authenticate } = await import("../shopify.server");
-  const {
-    saveCredentials,
-    getIntegrationByName,
-  } = await import("../models/Integration.server");
-  
   const { session } = await authenticate.admin(request);
   const shop = session.shop;
 

@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `synclog` MODIFY `syncType` ENUM('CUSTOMER', 'PRODUCT', 'DEAL', 'ORDER', 'PIPELINE', 'STAGE') NOT NULL;

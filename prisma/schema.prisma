@@ -14,60 +14,60 @@ datasource db {
 }
 
 model Shop {
-  id        Int       @id @default(autoincrement())
-  domain    String    @unique // integra-clientify.myshopify.com
-  active    Boolean   @default(true) // Si la app está instalada y activa
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  
-  sessions  Session[]
-  orders    Order[]
-  syncLogs  SyncLog[]
+  id        Int      @id @default(autoincrement())
+  domain    String   @unique // integra-clientify.myshopify.com
+  active    Boolean  @default(true) // Si la app está instalada y activa
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions    Session[]
+  orders      Order[]
+  syncLogs    SyncLog[]
   webhookLogs WebhookLog[]
 }
 
 model Session {
-  id            String    @id
-  shop          String    // Dominio de la tienda (requerido por Shopify)
-  shopId        Int?      // FK opcional a Shop
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
+  id                  String    @id
+  shop                String // Dominio de la tienda (requerido por Shopify)
+  shopId              Int? // FK opcional a Shop
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
   refreshToken        String?
   refreshTokenExpires DateTime?
-  
-  shopRecord    Shop?     @relation(fields: [shopId], references: [id], onDelete: SetNull)
 
+  shopRecord Shop? @relation(fields: [shopId], references: [id], onDelete: SetNull)
+
+  @@unique([shop, isOnline]) // Solo una sesión offline por tienda
   @@index([shop])
   @@index([shopId])
-  @@unique([shop, isOnline])  // Solo una sesión offline por tienda
 }
 
 model Integration {
-  id          Int                      @id @default(autoincrement())
-  name        String                   @unique
+  id          Int                     @id @default(autoincrement())
+  name        String                  @unique
   displayName String
-  createdAt   DateTime                 @default(now())
-  updatedAt   DateTime                 @updatedAt
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
   credentials IntegrationCredential[]
 }
 
 model IntegrationCredential {
   id            Int         @id @default(autoincrement())
-  sessionId     String      // Identificador de la tienda (shop)
+  sessionId     String // Identificador de la tienda (shop)
   integrationId Int
-  key           String      // Nombre de la credencial (ej: "apikey", "url")
-  value         String      // Valor de la credencial
+  key           String // Nombre de la credencial (ej: "apikey", "url")
+  value         String // Valor de la credencial
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
   integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
@@ -77,35 +77,38 @@ model IntegrationCredential {
 }
 
 model Order {
-  id            Int      @id @default(autoincrement())
-  orderId       String   @unique // ID del pedido de Shopify
-  orderNumber   String   // Número de pedido visible
-  shopId        Int      // FK a Shop
-  body          String   @db.LongText // JSON completo del webhook
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  id          Int      @id @default(autoincrement())
+  orderId     String   @unique // ID del pedido de Shopify
+  orderNumber String // Número de pedido visible
+  shopId      Int // FK a Shop
+  body        String   @db.LongText // JSON completo del webhook
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@index([shopId])
   @@index([orderId])
 }
 
 model SyncLog {
-  id            Int      @id @default(autoincrement())
-  shopId        Int      // FK a Shop
+  id            Int        @id @default(autoincrement())
+  shopId        Int // FK a Shop
   syncType      SyncType // Tipo de objeto sincronizado
-  shopifyId     String   // ID del objeto en Shopify
-  clientifyId   Int?     // ID resultante en Clientify (null si error)
-  parentOrderId String?  // ID de la orden padre si esta sync pertenece a una orden
+  shopifyId     String // ID del objeto en Shopify
+  clientifyId   Int? // ID resultante en Clientify (null si error)
+  parentOrderId String? // ID de la orden padre si esta sync pertenece a una orden
   status        SyncStatus // Estado de la sincronización
-  errorMessage  String?  @db.Text // Mensaje de error si aplica
-  requestData   String?  @db.LongText // JSON del request (opcional)
-  responseData  String?  @db.LongText // JSON del response (opcional)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  
-  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  method        String? // Método HTTP: GET, POST, PUT, DELETE, etc
+  url           String?    @db.Text // URL completa de la llamada a la API
+  queryParams   String?    @db.Text // JSON de parámetros query si aplica
+  errorMessage  String?    @db.Text // Mensaje de error si aplica
+  requestData   String?    @db.LongText // JSON del request (opcional)
+  responseData  String?    @db.LongText // JSON del response (opcional)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@index([shopId])
   @@index([syncType])
@@ -119,6 +122,8 @@ enum SyncType {
   PRODUCT
   DEAL
   ORDER
+  PIPELINE
+  STAGE
 }
 
 enum SyncStatus {
@@ -127,21 +132,51 @@ enum SyncStatus {
 }
 
 model WebhookLog {
-  id            Int      @id @default(autoincrement())
-  shopId        Int      // FK a Shop
-  topic         String   // Ej: "orders/create", "orders/updated"
-  shopifyId     String?  // ID del objeto en Shopify (extraído del payload)
-  headers       String   @db.Text // JSON de headers relevantes
-  payload       String   @db.LongText // JSON completo del webhook
-  hmacValid     Boolean? // Si se validó el HMAC
-  processed     Boolean  @default(false) // Si se procesó exitosamente
-  errorMessage  String?  @db.Text // Error si hubo al procesar
-  createdAt     DateTime @default(now())
-  
-  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  id           Int      @id @default(autoincrement())
+  shopId       Int // FK a Shop
+  topic        String // Ej: "orders/create", "orders/updated"
+  shopifyId    String? // ID del objeto en Shopify (extraído del payload)
+  headers      String   @db.Text // JSON de headers relevantes
+  payload      String   @db.LongText // JSON completo del webhook
+  hmacValid    Boolean? // Si se validó el HMAC
+  processed    Boolean  @default(false) // Si se procesó exitosamente
+  errorMessage String?  @db.Text // Error si hubo al procesar
+  createdAt    DateTime @default(now())
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@index([shopId])
   @@index([topic])
   @@index([createdAt])
   @@index([processed])
+}
+
+model PipelineConfig {
+  id                    Int      @id @default(autoincrement())
+  shopId                Int // FK a Shop
+  clientifyPipelineId   Int // ID del pipeline en Clientify
+  clientifyPipelineName String // Nombre del pipeline
+  isDefault             Boolean  @default(false) // Si es el pipeline por defecto
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  stageMappings OrderStageMapping[]
+
+  @@unique([shopId, clientifyPipelineId])
+  @@index([shopId])
+}
+
+model OrderStageMapping {
+  id                 Int      @id @default(autoincrement())
+  pipelineConfigId   Int // FK a PipelineConfig
+  shopifyOrderStatus String // Estado de Shopify: pending, authorized, partially_paid, paid, partially_refunded, refunded, voided
+  clientifyStageId   Int // ID del stage en Clientify
+  clientifyStageName String // Nombre del stage
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  pipelineConfig PipelineConfig @relation(fields: [pipelineConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([pipelineConfigId, shopifyOrderStatus])
+  @@index([pipelineConfigId])
 }

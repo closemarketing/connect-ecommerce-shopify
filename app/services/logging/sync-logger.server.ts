@@ -9,6 +9,9 @@ interface CreateSyncLogParams {
   clientifyId?: number;
   parentOrderId?: string;
   status: SyncStatus;
+  method?: string;
+  url?: string;
+  queryParams?: Record<string, any>;
   errorMessage?: string;
   requestData?: any;
   responseData?: any;
@@ -27,6 +30,9 @@ export async function createSyncLog(params: CreateSyncLogParams) {
         clientifyId: params.clientifyId,
         parentOrderId: params.parentOrderId,
         status: params.status,
+        method: params.method,
+        url: params.url,
+        queryParams: params.queryParams ? JSON.stringify(params.queryParams) : null,
         errorMessage: params.errorMessage,
         requestData: params.requestData ? JSON.stringify(params.requestData) : null,
         responseData: params.responseData ? JSON.stringify(params.responseData) : null,
@@ -51,7 +57,10 @@ export async function logCustomerSync(
   clientifyContactId: number,
   requestData?: any,
   responseData?: any,
-  parentOrderId?: string
+  parentOrderId?: string,
+  method?: string,
+  url?: string,
+  queryParams?: Record<string, any>
 ) {
   return createSyncLog({
     shopId,
@@ -60,6 +69,9 @@ export async function logCustomerSync(
     clientifyId: clientifyContactId,
     parentOrderId,
     status: "SUCCESS",
+    method,
+    url,
+    queryParams,
     requestData,
     responseData,
   });
@@ -74,7 +86,10 @@ export async function logProductSync(
   clientifyProductId: number,
   requestData?: any,
   responseData?: any,
-  parentOrderId?: string
+  parentOrderId?: string,
+  method?: string,
+  url?: string,
+  queryParams?: Record<string, any>
 ) {
   return createSyncLog({
     shopId,
@@ -83,6 +98,9 @@ export async function logProductSync(
     clientifyId: clientifyProductId,
     parentOrderId,
     status: "SUCCESS",
+    method,
+    url,
+    queryParams,
     requestData,
     responseData,
   });
@@ -97,7 +115,10 @@ export async function logDealSync(
   clientifyDealId: number,
   requestData?: any,
   responseData?: any,
-  parentOrderId?: string
+  parentOrderId?: string,
+  method?: string,
+  url?: string,
+  queryParams?: Record<string, any>
 ) {
   return createSyncLog({
     shopId,
@@ -106,6 +127,9 @@ export async function logDealSync(
     clientifyId: clientifyDealId,
     parentOrderId,
     status: "SUCCESS",
+    method,
+    url,
+    queryParams,
     requestData,
     responseData,
   });
@@ -119,7 +143,10 @@ export async function logOrderSync(
   shopifyOrderId: string,
   clientifyDealId: number,
   requestData?: any,
-  responseData?: any
+  responseData?: any,
+  method?: string,
+  url?: string,
+  queryParams?: Record<string, any>
 ) {
   return createSyncLog({
     shopId,
@@ -127,6 +154,9 @@ export async function logOrderSync(
     shopifyId: shopifyOrderId,
     clientifyId: clientifyDealId,
     status: "SUCCESS",
+    method,
+    url,
+    queryParams,
     requestData,
     responseData,
   });
@@ -140,13 +170,19 @@ export async function logSyncError(
   syncType: SyncType,
   shopifyId: string,
   errorMessage: string,
-  requestData?: any
+  requestData?: any,
+  method?: string,
+  url?: string,
+  queryParams?: Record<string, any>
 ) {
   return createSyncLog({
     shopId,
     syncType,
     shopifyId,
     status: "ERROR",
+    method,
+    url,
+    queryParams,
     errorMessage,
     requestData,
   });

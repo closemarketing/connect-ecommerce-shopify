@@ -7,6 +7,7 @@ import {
 import { syncShopifyLineItemsToClientifyProducts } from "./sync-products-to-clientify.server";
 import { logCustomerSync, logProductSync, logDealSync, logSyncError } from "../logging/sync-logger.server";
 import logger from "../../utils/logger.server";
+import db from "../../db.server";
 
 interface SyncResult {
   success: boolean;
@@ -92,6 +93,41 @@ export async function syncShopifyOrderToClientify(
     logger.info(`💰 Paso 3/3: Sincronizando oportunidad...`);
     const dealItems = mapLineItemsToClientifyDealItems(order.line_items || [], productIds);
     const dealData = mapShopifyOrderToClientifyDeal(order, contactId, dealItems, ownerId);
+    
+    // Obtener configuración de pipeline y stage
+    if (shopId) {
+      const pipelineConfig = await db.pipelineConfig.findFirst({
+        where: {
+          shopId,
+          isDefault: true,
+        },
+        include: {
+          stageMappings: true,
+        },
+      });
+
+      if (pipelineConfig) {
+        // Determinar el estado financiero de la orden
+        const orderStatus = order.financial_status || 'pending';
+        
+        // Buscar el mapping correspondiente
+        const stageMapping = pipelineConfig.stageMappings.find(
+          m => m.shopifyOrderStatus === orderStatus
+        );
+
+        if (stageMapping) {
+          // Agregar pipeline y stage al deal
+          dealData.pipeline = `https://api.clientify.net/v1/deals/pipelines/${pipelineConfig.clientifyPipelineId}/`;
+          dealData.pipeline_stage = `https://api.clientify.net/v1/deals/pipelines/stages/${stageMapping.clientifyStageId}/`;
+          logger.info(`📍 Pipeline: ${pipelineConfig.clientifyPipelineName}, Stage: ${stageMapping.clientifyStageName} (${orderStatus})`);
+        } else {
+          logger.warn(`⚠️ No se encontró mapeo para el estado: ${orderStatus}`);
+        }
+      } else {
+        logger.warn(`⚠️ No hay pipeline configurado como default para shopId: ${shopId}`);
+      }
+    }
+    
     const dealId = await clientify.syncDeal(dealData);
     logger.info(`✅ Oportunidad sincronizada con ID: ${dealId}`);
 

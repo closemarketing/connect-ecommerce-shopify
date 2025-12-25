@@ -21,6 +21,7 @@ export default function App() {
         {/* <s-link href="/app">QR codes</s-link> */}
         {/* <s-link href="/app/products">Products</s-link> */}
         <s-link href="/app/integrations">Integrations</s-link>
+        <s-link href="/app/pipelines">Pipelines</s-link>
         <s-link href="/app/sync-logs">Sync Logs</s-link>
         <s-link href="/app/webhook-logs">Webhook Logs</s-link>
         <s-link href="/app/additional">Additional page</s-link>

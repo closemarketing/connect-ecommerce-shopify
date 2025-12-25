@@ -41,6 +41,8 @@ interface ClientifyDeal {
   amount?: number;
   currency?: string;
   description?: string;
+  pipeline?: string; // URL del pipeline
+  pipeline_stage?: string; // URL del stage
   products?: Array<{
     product_id: number;
     quantity: number;
