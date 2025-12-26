@@ -24,6 +24,7 @@ model Shop {
   orders      Order[]
   syncLogs    SyncLog[]
   webhookLogs WebhookLog[]
+  jobs        Job[]
 }
 
 model Session {
@@ -180,3 +181,29 @@ model OrderStageMapping {
   @@unique([pipelineConfigId, shopifyOrderStatus])
   @@index([pipelineConfigId])
 }
+
+model Job {
+  id            Int       @id @default(autoincrement())
+  shopId        Int?      // FK a Shop (opcional si el job no está relacionado con una tienda)
+  queueName     String    // Nombre de la cola (order-sync, email-notification, etc.)
+  type          String    // Tipo de job (order.created, order.updated, order.cancelled, etc.)
+  payload       Json      // Datos del job
+  status        String    @default("pending") // pending, processing, completed, failed
+  attempts      Int       @default(0)
+  maxAttempts   Int       @default(3)
+  error         String?   @db.Text
+  priority      Int       @default(5) // 1 = alta, 10 = baja
+  processedAt   DateTime? // Cuando se completó o falló
+  startedAt     DateTime? // Cuando empezó a procesarse
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  shop Shop? @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([status, priority])
+  @@index([queueName, status])
+  @@index([shopId])
+  @@index([createdAt])
+}
+
+

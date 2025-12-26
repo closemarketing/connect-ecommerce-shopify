@@ -3,5 +3,5 @@ roles = ["frontend", "backend"]
 webhooks_path = "/webhooks/app/uninstalled"
 
 [commands]
-predev = "npx prisma generate"
+predev = "node scripts/safe-prisma-generate.js"
 dev = "npx prisma migrate deploy && npm exec react-router dev"

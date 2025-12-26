@@ -1,9 +1,9 @@
 import type { ActionFunctionArgs } from "react-router";
 import db from "../db.server";
 import { validateWebhookHmac } from "../utils/webhook-validator.server";
-import { syncShopifyOrderToClientify } from "../services/clientify/sync-order-to-clientify.server";
-import { logOrderSync, logSyncError } from "../services/logging/sync-logger.server";
+import { logSyncError } from "../services/logging/sync-logger.server";
 import { createWebhookLog, markWebhookAsProcessed, markWebhookAsError } from "../services/logging/webhook-logger.server";
+import { createJob } from "../services/job.server";
 import logger from "../utils/logger.server";
 import { validateShopIsActive } from "../utils/shop-validator.server";
 
@@ -72,53 +72,30 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
 
     if (clientifyCredentials) {
-      logger.info(`🔄 Iniciando sincronización con Clientify...`);
+      logger.info(`📝 Creando job de sincronización en la base de datos...`);
       
-      // Sincronizar con Clientify
-      const syncResult = await syncShopifyOrderToClientify(
-        payload,
-        clientifyCredentials.value,
-        shopRecord.id
-      );
+      // Crear job en DB - será recogido por el DB poller y encolado en Redis
+      const job = await createJob({
+        shopId: shopRecord.id,
+        queueName: 'order-sync',
+        type: 'order.created',
+        payload: {
+          shopifyOrderId: payload.id.toString(),
+          shop: shop,
+          orderData: payload
+        },
+        priority: 1
+      });
 
-      if (syncResult.success) {
-        logger.info(`✅ Pedido sincronizado con Clientify exitosamente`);
-        logger.info(`   - Contacto ID: ${syncResult.contactId}`);
-        logger.info(`   - Productos IDs: ${syncResult.productIds?.join(", ")}`);
-        logger.info(`   - Oportunidad ID: ${syncResult.dealId}`);
+      logger.info(`✅ Job ${job.id} creado en DB para sincronización con Clientify`);
+      logger.info(`   El DB poller lo recogerá y procesará automáticamente`);
 
-        // Registrar sincronización exitosa
-        await logOrderSync(
-          shopRecord.id,
-          payload.id.toString(),
-          syncResult.dealId!,
-          { orderNumber: payload.order_number, productCount: syncResult.productIds?.length },
-          syncResult
-        );
-
-        // Marcar webhook como procesado
-        if (webhookLogId) {
-          await markWebhookAsProcessed(webhookLogId);
-        }
-      } else {
-        logger.error(`❌ Error sincronizando con Clientify: ${syncResult.error}`);
-        
-        // Registrar error de sincronización
-        await logSyncError(
-          shopRecord.id,
-          "ORDER",
-          payload.id.toString(),
-          syncResult.error || "Error desconocido",
-          { orderNumber: payload.order_number }
-        );
-
-        // Marcar webhook con error
-        if (webhookLogId) {
-          await markWebhookAsError(webhookLogId, syncResult.error || "Error desconocido");
-        }
+      // Marcar webhook como procesado
+      if (webhookLogId) {
+        await markWebhookAsProcessed(webhookLogId);
       }
     } else {
-      logger.warn(`⚠️ No se encontraron credenciales de Clientify para ${shop}. Pedido guardado pero no sincronizado.`);
+      logger.warn(`⚠️ No se encontraron credenciales de Clientify para ${shop}. Pedido guardado pero no se creó job de sincronización.`);
       
       // Marcar webhook como procesado (aunque no se sincronizó)
       if (webhookLogId) {

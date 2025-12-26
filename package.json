@@ -4,6 +4,7 @@
   "scripts": {
     "build": "react-router build",
     "dev": "shopify app dev",
+    "dev:all": "concurrently -n \"SHOPIFY,WORKERS\" -c \"cyan,magenta\" \"npm run dev\" \"npm run workers:daemon\"",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
     "deploy": "shopify app deploy",
@@ -20,7 +21,9 @@
     "typecheck": "react-router typegen && tsc --noEmit",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "workers": "tsx app/queues/cli.server.ts",
+    "workers:daemon": "tsx app/worker-daemon.server.ts"
   },
   "type": "module",
   "engines": {
@@ -36,6 +39,7 @@
     "@shopify/polaris-icons": "^9.3.1",
     "@shopify/shopify-app-react-router": "^1.1.0",
     "@shopify/shopify-app-session-storage-prisma": "^8.0.0",
+    "bullmq": "^5.66.3",
     "isbot": "^5.1.31",
     "prisma": "^6.16.3",
     "qrcode": "^1.5.4",
@@ -56,6 +60,7 @@
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
     "@vitest/ui": "^2.1.9",
+    "concurrently": "^9.2.1",
     "eslint": "^8.57.1",
     "eslint-import-resolver-typescript": "^3.10.1",
     "eslint-plugin-import": "^2.32.0",
@@ -64,6 +69,7 @@
     "eslint-plugin-react-hooks": "^4.6.2",
     "graphql-config": "^5.1.1",
     "prettier": "^3.6.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^6.3.6",
     "vitest": "^2.1.9"

@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import db from "../db.server";
 import { validateWebhookHmac } from "../utils/webhook-validator.server";
-import { syncShopifyOrderToClientify } from "../services/clientify/sync-order-to-clientify.server";
+import { createJob } from "../services/job.server";
 import logger from "../utils/logger.server";
 import { createWebhookLog, markWebhookAsProcessed, markWebhookAsError } from "../services/logging/webhook-logger.server";
 import { validateShopIsActive } from "../utils/shop-validator.server";
@@ -99,48 +99,38 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       return new Response(null, { status: 200 });
     }
 
-    // Sincronizar con Clientify (igual que orders/create)
-    logger.info(`🔄 Syncing updated order ${payload.order_number} to Clientify...`);
-    await syncShopifyOrderToClientify(payload, clientifyCredentials.value, shopRecord.id);
-    logger.info(`✅ Order ${payload.order_number} synced to Clientify`);
+    // Crear job en DB para sincronización
+    logger.info(`📝 Creando job de actualización en la base de datos...`);
+    const job = await createJob({
+      shopId: shopRecord.id,
+      queueName: 'order-sync',
+      type: 'order.updated',
+      payload: {
+        shopifyOrderId: payload.id.toString(),
+        shop: shop,
+        orderData: payload
+      },
+      priority: 2  // Mayor prioridad que creaciones
+    });
+
+    logger.info(`✅ Job ${job.id} creado en DB para actualización con Clientify`);
+    logger.info(`   El DB poller lo recogerá y procesará automáticamente`);
 
     // Marcar webhook como procesado
     if (webhookLogId) {
       await markWebhookAsProcessed(webhookLogId);
     }
-    
+
     return new Response(null, { status: 200 });
   } catch (error) {
     logger.error("❌ ERROR in webhook UPDATED:", error);
     logger.error("Error details:", error instanceof Error ? error.message : error);
-
-    // Si tenemos webhookLogId, marcar con error
+    
     if (webhookLogId) {
-      await markWebhookAsError(webhookLogId, error instanceof Error ? error.message : String(error));
-    } else if (shopRecord) {
-      // Si no se pudo crear el webhookLog pero tenemos shopRecord, intentar crearlo ahora con el error
-      try {
-        const shop = request.headers.get("x-shopify-shop-domain") || "unknown";
-        const topic = request.headers.get("x-shopify-topic") || "orders/updated";
-        const hmac = request.headers.get("x-shopify-hmac-sha256");
-        
-        await createWebhookLog({
-          shopId: shopRecord.id,
-          topic,
-          shopifyId: payload?.id?.toString() || "unknown",
-          headers: {
-            "x-shopify-topic": topic,
-            "x-shopify-shop-domain": shop,
-            "x-shopify-hmac-sha256": hmac,
-          },
-          payload: rawBody || "{}",
-          hmacValid: true,
-          processed: true,
-          errorMessage: error instanceof Error ? error.message : String(error)
-        });
-      } catch (logError) {
-        logger.error("❌ No se pudo crear webhook log de error:", logError);
-      }
+      await markWebhookAsError(
+        webhookLogId,
+        error instanceof Error ? error.message : "Error desconocido"
+      );
     }
     
     return new Response(null, { status: 500 });

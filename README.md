@@ -6,6 +6,122 @@ Rather than cloning this repo, follow the [Quick Start steps](https://github.com
 
 Visit the [`shopify.dev` documentation](https://shopify.dev/docs/api/shopify-app-react-router) for more details on the React Router app package.
 
+## 🚀 Sistema de Workers BullMQ
+
+Esta aplicación incluye un sistema de workers con BullMQ para procesamiento en segundo plano.
+
+### Prerequisitos para Workers
+
+1. **Redis** debe estar corriendo (puerto 6379):
+   ```bash
+   docker-compose up -d
+   ```
+
+### Iniciar el Sistema de Workers
+
+**IMPORTANTE**: El Worker Daemon es **independiente** del servidor de Shopify. No necesitas tener `npm run dev` corriendo.
+
+#### Opción 1: Todo en Uno (Recomendado)
+Ejecuta el servidor de Shopify y el Worker Daemon simultáneamente:
+```bash
+npm run dev:all
+```
+
+Esto iniciará:
+- 🔵 **SHOPIFY**: Servidor de desarrollo de Shopify (puerto 3000+)
+- 🟣 **WORKERS**: Worker Daemon con BullMQ
+
+#### Opción 2: Solo Workers (Sin servidor de Shopify)
+Si solo necesitas los workers:
+```bash
+npm run workers:daemon
+```
+
+#### Opción 3: Script PowerShell
+```powershell
+.\start-workers.ps1
+```
+
+**Salida esperada:**
+```
+🚀 Iniciando Worker Daemon...
+🔌 Iniciando IPC handler para CLI...
+✅ IPC handler iniciado. Esperando comandos del CLI...
+📦 Registrando worker inicial: order-sync-default
+🚀 Worker order-sync creado y escuchando...
+✅ Worker order-sync-default iniciado
+✅ Worker Daemon iniciado correctamente
+📊 Workers activos: 1
+```
+
+### Usar el CLI de Workers
+
+**En otra terminal separada**, usa estos comandos:
+
+```bash
+# Listar workers por queue (muestra estados y estadísticas)
+npm run workers list
+
+# Escalar workers de una queue
+npm run workers scale order-sync 5      # Crear 5 workers
+npm run workers scale order-sync 2      # Reducir a 2 workers  
+npm run workers scale order-sync 0      # Detener todos
+
+# Pausar workers (dejan de procesar jobs)
+npm run workers pause order-sync                # Pausa toda la queue
+npm run workers pause order-sync-a1b2c3d        # Pausa worker específico
+
+# Reanudar workers
+npm run workers resume order-sync               # Reanuda toda la queue
+npm run workers resume order-sync-a1b2c3d       # Reanuda worker específico
+
+# Detener un worker específico
+npm run workers stop order-sync-a1b2c3d
+
+# Ver ayuda
+npm run workers help
+```
+
+### Características del Nuevo Sistema
+
+✅ **Auto-generación de IDs**: No necesitas nombrar workers manualmente
+✅ **Escalado fácil**: `scale <queue> <count>` para ajustar workers
+✅ **Estados**: running ▶️, paused ⏸️, stopped ⏹️
+✅ **Control granular**: Pausar/reanudar por queue o worker individual
+✅ **Agrupación por queue**: Vista organizada de todos los workers
+
+### Arquitectura del Sistema
+
+```
+┌─────────────┐     File-based IPC      ┌──────────────┐
+│  CLI        │ ──────────────────────> │ Worker       │
+│  (tsx)      │  (.worker-ipc/*)        │ Daemon (tsx) │
+└─────────────┘                          └──────┬───────┘
+                                                │
+                                                v
+                                         ┌──────────────┐
+                                         │ BullMQ       │
+                                         │ Workers      │
+                                         └──────┬───────┘
+                                                │
+                                                v
+                                         ┌──────────────┐
+                                         │ Redis        │
+                                         │ (localhost:  │
+                                         │  6379)       │
+                                         └──────────────┘
+```
+
+### Notas Importantes
+
+- ✅ El Worker Daemon funciona **independientemente** del servidor de Shopify
+- ✅ Solo requiere Redis corriendo y acceso a la base de datos
+- ✅ Usa comunicación file-based (no HTTP) para evitar conflictos de puertos
+- ⚠️  Debes ejecutar el daemon en una **terminal separada** (no en background de PowerShell)
+- 📊 Redis Commander disponible en http://localhost:8081 para monitorear colas
+
+---
+
 ## Upgrading from Remix
 
 If you have an existing Remix app that you want to upgrade to React Router, please follow the [upgrade guide](https://github.com/Shopify/shopify-app-template-react-router/wiki/Upgrading-from-Remix).  Otherwise, please follow the quick start guide below.

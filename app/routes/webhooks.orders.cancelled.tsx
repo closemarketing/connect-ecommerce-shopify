@@ -1,13 +1,16 @@
 import type { ActionFunctionArgs } from "react-router";
 import db from "../db.server";
 import { validateWebhookHmac } from "../utils/webhook-validator.server";
+import { createJob } from "../services/job.server";
 import logger from "../utils/logger.server";
 import { validateShopIsActive } from "../utils/shop-validator.server";
+import { markWebhookAsProcessed } from "../services/logging/webhook-logger.server";
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   logger.info("🚀 WEBHOOK CANCELLED - Route hit!", new Date().toISOString());
   
   let shopRecord: any = null;
+  let webhookLogId: number | null = null;
   let rawBody = "";
   let payload: any = null;
   
@@ -35,7 +38,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     shopRecord = validation.shop;
-
+    webhookLogId = validation.webhookLogId;
 
     await db.order.upsert({
       where: { orderId: payload.id.toString() },
@@ -50,6 +53,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
     });
     logger.info(`✅ Order ${payload.order_number} (cancelled) updated in database`);
+
+    // Crear job en DB para marcar como cancelado en Clientify
+    logger.info(`📝 Creando job de cancelación en la base de datos...`);
+    const job = await createJob({
+      shopId: shopRecord.id,
+      queueName: 'order-sync',
+      type: 'order.cancelled',
+      payload: {
+        shopifyOrderId: payload.id.toString(),
+        shop: shop,
+        orderData: payload
+      },
+      priority: 3  // Máxima prioridad
+    });
+
+    logger.info(`✅ Job ${job.id} creado en DB para cancelación con Clientify`);
+    logger.info(`   El DB poller lo recogerá y procesará automáticamente`);
+
+    // Marcar webhook como procesado
+    if (webhookLogId) {
+      await markWebhookAsProcessed(webhookLogId);
+    }
     
     return new Response(null, { status: 200 });
   } catch (error) {
@@ -58,3 +83,4 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response(null, { status: 500 });
   }
 };
+
