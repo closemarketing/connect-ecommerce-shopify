@@ -1,6 +1,6 @@
 import db from "../db.server";
 import logger from "./logger.server";
-import { createWebhookLog } from "../services/logging/webhook-logger.server";
+import { createWebhookLogsForActiveIntegrations } from "../services/logging/webhook-logger.server";
 import { validateWebhookHmac } from "./webhook-validator.server";
 
 /**
@@ -11,7 +11,7 @@ import { validateWebhookHmac } from "./webhook-validator.server";
  * @param payload Payload del webhook
  * @param headers Headers del webhook
  * @param rawBody Body raw para validar HMAC
- * @returns El registro de Shop si está activa, null si está inactiva
+ * @returns El registro de Shop si está activa, array de webhookLogIds
  */
 export async function validateShopIsActive(
   shopDomain: string,
@@ -19,7 +19,7 @@ export async function validateShopIsActive(
   shopifyId: string | undefined,
   rawBody: string,
   headers?: Record<string, string | null>
-): Promise<{ shop: any; webhookLogId: number | null } | null> {
+): Promise<{ shop: any; webhookLogIds: number[] } | null> {
   // Validar HMAC
   const hmac = headers?.["x-shopify-hmac-sha256"] || null;
   const hmacValid = validateWebhookHmac(rawBody, hmac);
@@ -47,8 +47,8 @@ export async function validateShopIsActive(
     logger.info(`✅ Shop ${shopDomain} reactivated (app reinstalled)`);
   }
 
-  // Crear log del webhook
-  const webhookLog = await createWebhookLog({
+  // Crear logs del webhook para cada integración activa
+  const webhookLogs = await createWebhookLogsForActiveIntegrations({
     shopId: shopRecord.id,
     topic,
     shopifyId,
@@ -57,6 +57,9 @@ export async function validateShopIsActive(
     hmacValid,
   });
 
+  const webhookLogIds = webhookLogs.map(log => log.id);
+  logger.info(`📝 Created ${webhookLogIds.length} webhook log(s) for topic ${topic}`);
+
   // Si el HMAC no es válido, rechazar el webhook
   if (!hmacValid) {
     logger.error(`🚫 Webhook rejected due to invalid HMAC: ${topic} from ${shopDomain}`);
@@ -64,5 +67,5 @@ export async function validateShopIsActive(
   }
 
   // Después de buscar/crear/reactivar, la tienda siempre estará activa
-  return { shop: shopRecord, webhookLogId: webhookLog?.id || null };
+  return { shop: shopRecord, webhookLogIds };
 }

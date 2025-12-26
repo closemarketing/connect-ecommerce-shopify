@@ -8,7 +8,7 @@ import {
   updateClientifyStage,
   getClientifyPipeline,
   type ClientifyStage,
-} from "../services/clientify/pipeline.server";
+} from "../integrations/clientify/pipeline.server";
 import logger from "../utils/logger.server";
 
 // Definición de los 7 estados de Shopify con sus configuraciones por defecto

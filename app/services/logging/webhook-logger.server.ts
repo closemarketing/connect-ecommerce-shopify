@@ -10,6 +10,7 @@ interface CreateWebhookLogParams {
   hmacValid?: boolean;
   processed?: boolean;
   errorMessage?: string;
+  integrationId?: number;
 }
 
 /**
@@ -27,15 +28,74 @@ export async function createWebhookLog(params: CreateWebhookLogParams) {
         hmacValid: params.hmacValid,
         processed: params.processed ?? false,
         errorMessage: params.errorMessage,
+        integrationId: params.integrationId,
       },
     });
 
-    logger.debug(`📝 Webhook log creado: ${params.topic} - ID: ${webhookLog.id}`);
+    logger.debug(`📝 Webhook log creado: ${params.topic} - ID: ${webhookLog.id}${params.integrationId ? ` - Integration: ${params.integrationId}` : ''}`);
     return webhookLog;
   } catch (error) {
     logger.error("Error creando webhook log:", error);
     // No lanzamos el error para no interrumpir el flujo principal
     return null;
+  }
+}
+
+/**
+ * Crea múltiples registros de webhook logs, uno por cada integración activa del shop
+ */
+export async function createWebhookLogsForActiveIntegrations(params: Omit<CreateWebhookLogParams, 'integrationId'>) {
+  try {
+    // Obtener todas las integraciones que tienen credenciales activas para este shop
+    const shop = await prisma.shop.findUnique({
+      where: { id: params.shopId },
+      select: { domain: true }
+    });
+
+    if (!shop) {
+      logger.warn(`⚠️ Shop ${params.shopId} not found for webhook duplication`);
+      return [];
+    }
+
+    // Buscar todas las integraciones que tienen credenciales configuradas para esta tienda
+    const activeIntegrations = await prisma.integrationCredential.findMany({
+      where: {
+        sessionId: shop.domain,
+      },
+      select: {
+        integrationId: true,
+      },
+      distinct: ['integrationId'],
+    });
+
+    if (activeIntegrations.length === 0) {
+      logger.info(`ℹ️ No active integrations found for shop ${shop.domain}, creating generic webhook log`);
+      // Si no hay integraciones activas, crear un solo log sin integrationId
+      const log = await createWebhookLog(params);
+      return log ? [log] : [];
+    }
+
+    logger.info(`📋 Creating ${activeIntegrations.length} webhook log(s) for shop ${shop.domain}`);
+
+    // Crear un webhook log por cada integración activa
+    const webhookLogs = [];
+    for (const { integrationId } of activeIntegrations) {
+      const log = await createWebhookLog({
+        ...params,
+        integrationId,
+      });
+      if (log) {
+        webhookLogs.push(log);
+      }
+    }
+
+    logger.info(`✅ Created ${webhookLogs.length} webhook log(s) for ${activeIntegrations.length} active integration(s)`);
+    return webhookLogs;
+  } catch (error) {
+    logger.error("Error creating webhook logs for active integrations:", error);
+    // Fallback: crear al menos un log sin integrationId
+    const log = await createWebhookLog(params);
+    return log ? [log] : [];
   }
 }
 

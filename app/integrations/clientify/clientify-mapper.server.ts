@@ -1,4 +1,4 @@
-import type { ClientifyContact, ClientifyProduct, ClientifyDeal } from "./clientify.server";
+import type { ClientifyContact, ClientifyProduct, ClientifyDeal } from "./clientify-api.server";
 
 /**
  * Convierte un pedido de Shopify a un contacto de Clientify

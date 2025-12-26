@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import db from "../db.server";
 import { validateWebhookHmac } from "../utils/webhook-validator.server";
-import { syncShopifyOrderToClientify } from "../services/clientify/sync-order-to-clientify.server";
+import { syncShopifyOrderToClientify } from "../integrations/clientify/sync-order.server";
 import { logOrderSync, logSyncError } from "../services/logging/sync-logger.server";
 import { createWebhookLog, markWebhookAsProcessed, markWebhookAsError } from "../services/logging/webhook-logger.server";
 import logger from "../utils/logger.server";
@@ -10,7 +10,7 @@ import { validateShopIsActive } from "../utils/shop-validator.server";
 export const action = async ({ request }: ActionFunctionArgs) => {
   logger.info("🚀 WEBHOOK CREATE - Route hit!", { timestamp: new Date().toISOString() });
   
-  let webhookLogId: number | null = null;
+  let webhookLogIds: number[] = [];
   let shopRecord: any = null;
   let rawBody = "";
   let payload: any = null;
@@ -42,7 +42,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     shopRecord = validation.shop;
-    webhookLogId = validation.webhookLogId;
+    webhookLogIds = validation.webhookLogIds;
 
     // Guardar o actualizar pedido en BD
     await db.order.upsert({
@@ -64,24 +64,35 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     logger.info(`✅ Order ${payload.order_number} saved to database`);
 
     // Obtener credenciales de Clientify para esta tienda
-    const clientifyCredentials = await db.integrationCredential.findFirst({
+    const integration = await db.integration.findUnique({
+      where: { name: "clientify" }
+    });
+
+    if (!integration) {
+      logger.warn(`⚠️ Integración Clientify no encontrada. Pedido guardado pero no sincronizado.`);
+      for (const logId of webhookLogIds) {
+        await markWebhookAsProcessed(logId);
+      }
+      return new Response(null, { status: 200 });
+    }
+
+    const apiTokenCredential = await db.integrationCredential.findFirst({
       where: {
-        sessionId: shop, // Buscar por shop domain
-        integration: {
-          name: "clientify"
-        },
-        key: "apikey"
+        sessionId: shop,
+        integrationId: integration.id,
+        key: "apiToken"
       }
     });
 
-    if (clientifyCredentials) {
+    if (apiTokenCredential) {
       logger.info(`🔄 Iniciando sincronización con Clientify...`);
       
       // Sincronizar con Clientify
       const syncResult = await syncShopifyOrderToClientify(
         payload,
-        clientifyCredentials.value,
-        shopRecord.id
+        apiTokenCredential.value,
+        shopRecord.id,
+        integration.id
       );
 
       if (syncResult.success) {
@@ -96,12 +107,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           payload.id.toString(),
           syncResult.dealId!,
           { orderNumber: payload.order_number, productCount: syncResult.productIds?.length },
-          syncResult
+          syncResult,
+          undefined, // method
+          undefined, // url
+          undefined, // queryParams
+          integration.id
         );
 
-        // Marcar webhook como procesado
-        if (webhookLogId) {
-          await markWebhookAsProcessed(webhookLogId);
+        // Marcar webhooks como procesados
+        for (const logId of webhookLogIds) {
+          await markWebhookAsProcessed(logId);
         }
       } else {
         logger.error(`❌ Error sincronizando con Clientify: ${syncResult.error}`);
@@ -112,20 +127,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           "ORDER",
           payload.id.toString(),
           syncResult.error || "Error desconocido",
-          { orderNumber: payload.order_number }
+          { orderNumber: payload.order_number },
+          undefined, // method
+          undefined, // url
+          undefined, // queryParams
+          integration.id
         );
 
-        // Marcar webhook con error
-        if (webhookLogId) {
-          await markWebhookAsError(webhookLogId, syncResult.error || "Error desconocido");
+        // Marcar webhooks con error
+        for (const logId of webhookLogIds) {
+          await markWebhookAsError(logId, syncResult.error || "Error desconocido");
         }
       }
     } else {
       logger.warn(`⚠️ No se encontraron credenciales de Clientify para ${shop}. Pedido guardado pero no sincronizado.`);
       
-      // Marcar webhook como procesado (aunque no se sincronizó)
-      if (webhookLogId) {
-        await markWebhookAsProcessed(webhookLogId);
+      // Marcar webhooks como procesados (aunque no se sincronizaron)
+      for (const logId of webhookLogIds) {
+        await markWebhookAsProcessed(logId);
       }
     }
     
@@ -134,36 +153,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     logger.error("❌ ERROR in webhook CREATE:", error);
     logger.error("Error details:", error instanceof Error ? error.message : error);
     
-    // Si tenemos webhookLogId, marcar con error
-    if (webhookLogId) {
+    // Si tenemos webhookLogIds, marcar todos con error
+    for (const logId of webhookLogIds) {
       await markWebhookAsError(
-        webhookLogId,
+        logId,
         error instanceof Error ? error.message : "Error desconocido"
       );
-    } else if (shopRecord) {
-      // Si no se pudo crear el webhookLog pero tenemos shopRecord, intentar crearlo ahora con el error
-      try {
-        const shop = request.headers.get("x-shopify-shop-domain") || "unknown";
-        const topic = request.headers.get("x-shopify-topic") || "orders/create";
-        const hmac = request.headers.get("x-shopify-hmac-sha256");
-        
-        await createWebhookLog({
-          shopId: shopRecord.id,
-          topic,
-          shopifyId: payload?.id?.toString() || "unknown",
-          headers: {
-            "x-shopify-topic": topic,
-            "x-shopify-shop-domain": shop,
-            "x-shopify-hmac-sha256": hmac,
-          },
-          payload: rawBody || "{}",
-          hmacValid: true,
-          processed: true,
-          errorMessage: error instanceof Error ? error.message : "Error desconocido"
-        });
-      } catch (logError) {
-        logger.error("❌ No se pudo crear webhook log de error:", logError);
-      }
     }
     
     return new Response(null, { status: 500 });

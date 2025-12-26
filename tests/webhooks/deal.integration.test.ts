@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { mockShopifyOrder } from '../fixtures/shopify-order.mock';
-import { syncShopifyDealToClientify } from '../../app/services/clientify/sync-deal-to-clientify.server';
-import { syncShopifyCustomerToClientifyContact } from '../../app/services/clientify/sync-customer-to-clientify.server';
-import { mapShopifyOrderToClientifyDeal } from '../../app/services/clientify/clientify-mapper.server';
-import { ClientifyService } from '../../app/services/clientify/clientify.server';
+import { syncShopifyDealToClientify } from '../../app/integrations/clientify/sync-deal.server';
+import { syncShopifyCustomerToClientifyContact } from '../../app/integrations/clientify/sync-customer.server';
+import { mapShopifyOrderToClientifyDeal } from '../../app/integrations/clientify/clientify-mapper.server';
+import { ClientifyService } from '../../app/integrations/clientify/clientify-api.server';
 import db from '../../app/db.server';
 
 /**
@@ -43,7 +43,7 @@ describe('Deal Integration - Sync to Clientify', () => {
       where: {
         sessionId: testShopDomain,
         integrationId: clientifyIntegration.id,
-        key: 'apiKey',
+        key: 'apiToken',
       },
     });
 

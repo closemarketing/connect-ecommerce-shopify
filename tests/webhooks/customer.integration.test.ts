@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { mockShopifyOrder } from '../fixtures/shopify-order.mock';
-import { syncShopifyCustomerToClientifyContact } from '../../app/services/clientify/sync-customer-to-clientify.server';
+import { syncShopifyCustomerToClientifyContact } from '../../app/integrations/clientify/sync-customer.server';
 import db from '../../app/db.server';
 
 /**
@@ -39,7 +39,7 @@ describe('Customer Integration - Sync to Clientify', () => {
       where: {
         sessionId: testShopDomain,
         integrationId: clientifyIntegration.id,
-        key: 'apiKey',
+        key: 'apiToken',
       },
     });
     

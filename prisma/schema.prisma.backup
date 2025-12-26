@@ -24,7 +24,6 @@ model Shop {
   orders      Order[]
   syncLogs    SyncLog[]
   webhookLogs WebhookLog[]
-  jobs        Job[]
 }
 
 model Session {
@@ -159,13 +158,7 @@ model WebhookLog {
 
   @@index([shopId])
   @@index([integrationId])
-  @@index([topic])
-  @@index([createdAt])
-  @@index([processed])
-}
-
-model PipelineConfig {
-  id                   Int         @id @default(autoincrement())
+  @@index([topic])Int         @id @default(autoincrement())
   shopId               Int // FK a Shop
   integrationId        Int // FK a Integration
   externalPipelineId   String // ID del pipeline en sistema externo
@@ -179,47 +172,26 @@ model PipelineConfig {
 
   @@unique([shopId, integrationId, externalPipelineId])
   @@index([shopId])
-  @@index([integrationId])
-}
+  @@index([integration         DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
-model OrderStageMapping {
-  id                 Int            @id @default(autoincrement())
+  stageMappings OrderStageMapping[]
+
+  @@unique([shopId, clientifyPipelineId])
+  @@index([shopId])
+}      @id @default(autoincrement())
   pipelineConfigId   Int // FK a PipelineConfig
   shopifyOrderStatus String // Estado de Shopify: pending, authorized, partially_paid, paid, partially_refunded, refunded, voided
   externalStageId    String // ID del stage en sistema externo
   externalStageName  String // Nombre del stage
   createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  updatedAt          DateTime      D del stage en Clientify
+  clientifyStageName String // Nombre del stage
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   pipelineConfig PipelineConfig @relation(fields: [pipelineConfigId], references: [id], onDelete: Cascade)
 
   @@unique([pipelineConfigId, shopifyOrderStatus])
   @@index([pipelineConfigId])
-}
-
-model Job {
-  id            Int          @id @default(autoincrement())
-  shopId        Int // FK a Shop
-  integrationId Int? // FK a Integration (qué integración debe procesar)
-  queueName     String // Nombre de la cola BullMQ
-  type          String // Tipo de trabajo (order-sync, customer-sync, etc)
-  payload       String       @db.LongText // JSON con los datos del trabajo
-  status        String       @default("pending") // pending, processing, completed, failed
-  priority      Int          @default(0) // Mayor = más prioritario
-  attempts      Int          @default(0) // Número de intentos realizados
-  maxAttempts   Int          @default(3) // Máximo de intentos permitidos
-  startedAt     DateTime? // Cuándo comenzó a procesarse
-  processedAt   DateTime? // Cuándo se completó
-  error         String?      @db.Text // Mensaje de error si falló
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-
-  shop        Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  integration Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
-
-  @@index([shopId])
-  @@index([integrationId])
-  @@index([status, priority])
-  @@index([queueName, status])
-  @@index([createdAt])
 }

@@ -1,5 +1,5 @@
 import logger from "../../utils/logger.server";
-import { createSyncLog } from "../logging/sync-logger.server";
+import { createSyncLog } from "../../services/logging/sync-logger.server";
 
 const CLIENTIFY_API_URL = "https://api.clientify.net/v1";
 
@@ -128,7 +128,7 @@ export async function createClientifyPipeline(
         shopId,
         syncType: "PIPELINE",
         shopifyId: `pipeline-${name}`,
-        clientifyId: pipeline.id,
+        externalId: pipeline.id.toString(),
         status: "SUCCESS",
         method: "POST",
         url,

@@ -1,4 +1,4 @@
-import { ClientifyService, type ClientifyProduct } from "./clientify.server";
+import { ClientifyService, type ClientifyProduct } from "./clientify-api.server";
 import logger from "../../utils/logger.server";
 
 /**

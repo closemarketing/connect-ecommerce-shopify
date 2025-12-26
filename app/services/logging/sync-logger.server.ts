@@ -6,7 +6,7 @@ interface CreateSyncLogParams {
   shopId: number;
   syncType: SyncType;
   shopifyId: string;
-  clientifyId?: number;
+  externalId?: string;
   parentOrderId?: string;
   status: SyncStatus;
   method?: string;
@@ -15,6 +15,7 @@ interface CreateSyncLogParams {
   errorMessage?: string;
   requestData?: any;
   responseData?: any;
+  integrationId?: number;
 }
 
 /**
@@ -27,7 +28,8 @@ export async function createSyncLog(params: CreateSyncLogParams) {
         shopId: params.shopId,
         syncType: params.syncType,
         shopifyId: params.shopifyId,
-        clientifyId: params.clientifyId,
+        externalId: params.externalId?.toString(),
+        integrationId: params.integrationId,
         parentOrderId: params.parentOrderId,
         status: params.status,
         method: params.method,
@@ -60,13 +62,14 @@ export async function logCustomerSync(
   parentOrderId?: string,
   method?: string,
   url?: string,
-  queryParams?: Record<string, any>
+  queryParams?: Record<string, any>,
+  integrationId?: number
 ) {
   return createSyncLog({
     shopId,
     syncType: "CUSTOMER",
     shopifyId: shopifyCustomerId,
-    clientifyId: clientifyContactId,
+    externalId: clientifyContactId?.toString(),
     parentOrderId,
     status: "SUCCESS",
     method,
@@ -74,6 +77,7 @@ export async function logCustomerSync(
     queryParams,
     requestData,
     responseData,
+    integrationId,
   });
 }
 
@@ -89,13 +93,14 @@ export async function logProductSync(
   parentOrderId?: string,
   method?: string,
   url?: string,
-  queryParams?: Record<string, any>
+  queryParams?: Record<string, any>,
+  integrationId?: number
 ) {
   return createSyncLog({
     shopId,
     syncType: "PRODUCT",
     shopifyId: shopifyVariantId,
-    clientifyId: clientifyProductId,
+    externalId: clientifyProductId?.toString(),
     parentOrderId,
     status: "SUCCESS",
     method,
@@ -103,6 +108,7 @@ export async function logProductSync(
     queryParams,
     requestData,
     responseData,
+    integrationId,
   });
 }
 
@@ -118,13 +124,14 @@ export async function logDealSync(
   parentOrderId?: string,
   method?: string,
   url?: string,
-  queryParams?: Record<string, any>
+  queryParams?: Record<string, any>,
+  integrationId?: number
 ) {
   return createSyncLog({
     shopId,
     syncType: "DEAL",
     shopifyId: shopifyOrderId,
-    clientifyId: clientifyDealId,
+    externalId: clientifyDealId?.toString(),
     parentOrderId,
     status: "SUCCESS",
     method,
@@ -132,6 +139,7 @@ export async function logDealSync(
     queryParams,
     requestData,
     responseData,
+    integrationId,
   });
 }
 
@@ -146,19 +154,21 @@ export async function logOrderSync(
   responseData?: any,
   method?: string,
   url?: string,
-  queryParams?: Record<string, any>
+  queryParams?: Record<string, any>,
+  integrationId?: number
 ) {
   return createSyncLog({
     shopId,
     syncType: "ORDER",
     shopifyId: shopifyOrderId,
-    clientifyId: clientifyDealId,
+    externalId: clientifyDealId?.toString(),
     status: "SUCCESS",
     method,
     url,
     queryParams,
     requestData,
     responseData,
+    integrationId,
   });
 }
 
@@ -173,7 +183,8 @@ export async function logSyncError(
   requestData?: any,
   method?: string,
   url?: string,
-  queryParams?: Record<string, any>
+  queryParams?: Record<string, any>,
+  integrationId?: number
 ) {
   return createSyncLog({
     shopId,
@@ -185,6 +196,7 @@ export async function logSyncError(
     queryParams,
     errorMessage,
     requestData,
+    integrationId,
   });
 }
 

@@ -1,11 +1,11 @@
-import { ClientifyService } from "./clientify.server";
+import { ClientifyService } from "./clientify-api.server";
 import {
   mapShopifyOrderToClientifyContact,
   mapShopifyOrderToClientifyDeal,
   mapLineItemsToClientifyDealItems,
 } from "./clientify-mapper.server";
-import { syncShopifyLineItemsToClientifyProducts } from "./sync-products-to-clientify.server";
-import { logCustomerSync, logProductSync, logDealSync, logSyncError } from "../logging/sync-logger.server";
+import { syncShopifyLineItemsToClientifyProducts } from "./sync-product.server";
+import { logCustomerSync, logProductSync, logDealSync, logSyncError } from "../../services/logging/sync-logger.server";
 import logger from "../../utils/logger.server";
 import db from "../../db.server";
 
@@ -26,7 +26,8 @@ interface SyncResult {
 export async function syncShopifyOrderToClientify(
   orderData: any,
   clientifyApiToken: string,
-  shopId?: number
+  shopId?: number,
+  integrationId?: number
 ): Promise<SyncResult> {
   try {
     const clientify = new ClientifyService({ apiToken: clientifyApiToken });
@@ -83,7 +84,11 @@ export async function syncShopifyOrderToClientify(
             productId,
             { sku: lineItem.sku, name: lineItem.title },
             syncedProduct, // responseData completo del producto
-            order.id?.toString() // parentOrderId
+            order.id?.toString(), // parentOrderId
+            undefined, // method
+            undefined, // url
+            undefined, // queryParams
+            integrationId
           );
         }
       }
@@ -117,9 +122,9 @@ export async function syncShopifyOrderToClientify(
 
         if (stageMapping) {
           // Agregar pipeline y stage al deal
-          dealData.pipeline = `https://api.clientify.net/v1/deals/pipelines/${pipelineConfig.clientifyPipelineId}/`;
-          dealData.pipeline_stage = `https://api.clientify.net/v1/deals/pipelines/stages/${stageMapping.clientifyStageId}/`;
-          logger.info(`📍 Pipeline: ${pipelineConfig.clientifyPipelineName}, Stage: ${stageMapping.clientifyStageName} (${orderStatus})`);
+          dealData.pipeline = `https://api.clientify.net/v1/deals/pipelines/${pipelineConfig.externalPipelineId}/`;
+          dealData.pipeline_stage = `https://api.clientify.net/v1/deals/pipelines/stages/${stageMapping.externalStageId}/`;
+          logger.info(`📍 Pipeline: ${pipelineConfig.externalPipelineName}, Stage: ${stageMapping.externalStageName} (${orderStatus})`);
         } else {
           logger.warn(`⚠️ No se encontró mapeo para el estado: ${orderStatus}`);
         }
@@ -139,7 +144,11 @@ export async function syncShopifyOrderToClientify(
         dealId,
         dealData,
         { id: dealId, ...dealData }, // responseData con el ID devuelto
-        order.id.toString() // parentOrderId
+        order.id.toString(), // parentOrderId
+        undefined, // method
+        undefined, // url
+        undefined, // queryParams
+        integrationId
       );
     }
 
@@ -162,7 +171,11 @@ export async function syncShopifyOrderToClientify(
         "ORDER",
         order.id?.toString() || "unknown",
         error instanceof Error ? error.message : "Error desconocido",
-        { orderNumber: order.order_number }
+        { orderNumber: order.order_number },
+        undefined, // method
+        undefined, // url
+        undefined, // queryParams
+        integrationId
       );
     }
     

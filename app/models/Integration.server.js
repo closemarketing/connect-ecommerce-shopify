@@ -132,3 +132,110 @@ export async function getAllCredentialsByShop(sessionId) {
     return acc;
   }, {});
 }
+
+/**
+ * Obtiene las integraciones activas (habilitadas) para una tienda
+ * Solo devuelve aquellas que tienen credenciales configuradas
+ */
+export async function getActiveIntegrationsForShop(shopId) {
+  // Obtener el shop para obtener su dominio (session)
+  const shop = await db.shop.findUnique({
+    where: { id: shopId },
+  });
+
+  if (!shop) {
+    return [];
+  }
+
+  // Buscar sesión asociada al shop
+  const session = await db.session.findFirst({
+    where: { shop: shop.domain },
+  });
+
+  if (!session) {
+    return [];
+  }
+
+  // Obtener todas las integraciones habilitadas que tienen credenciales
+  const integrations = await db.integration.findMany({
+    where: {
+      enabled: true,
+      credentials: {
+        some: {
+          sessionId: session.id,
+        },
+      },
+    },
+    include: {
+      _count: {
+        select: { credentials: true },
+      },
+    },
+  });
+
+  return integrations;
+}
+
+/**
+ * Obtiene las integraciones habilitadas en el sistema
+ */
+export async function getEnabledIntegrations() {
+  return await db.integration.findMany({
+    where: { enabled: true },
+    orderBy: { name: "asc" },
+  });
+}
+
+/**
+ * Habilita o deshabilita una integración
+ */
+export async function toggleIntegration(integrationId, enabled) {
+  return await db.integration.update({
+    where: { id: integrationId },
+    data: { enabled },
+  });
+}
+
+/**
+ * Obtiene estadísticas de sincronización para una integración y tienda
+ */
+export async function getIntegrationStats(shopId, integrationId, days = 30) {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+
+  const [successCount, errorCount, pendingJobs] = await Promise.all([
+    // Sincronizaciones exitosas
+    db.syncLog.count({
+      where: {
+        shopId,
+        integrationId,
+        status: "SUCCESS",
+        createdAt: { gte: startDate },
+      },
+    }),
+    // Sincronizaciones con error
+    db.syncLog.count({
+      where: {
+        shopId,
+        integrationId,
+        status: "ERROR",
+        createdAt: { gte: startDate },
+      },
+    }),
+    // Jobs pendientes
+    db.job.count({
+      where: {
+        shopId,
+        integrationId,
+        status: "pending",
+      },
+    }),
+  ]);
+
+  return {
+    successCount,
+    errorCount,
+    pendingJobs,
+    totalSyncs: successCount + errorCount,
+  };
+}

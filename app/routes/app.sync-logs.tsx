@@ -4,7 +4,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
 import { useState } from "react";
-import { syncShopifyOrderToClientify } from "../services/clientify/sync-order-to-clientify.server";
+import { syncShopifyOrderToClientify } from "../integrations/clientify/sync-order.server";
 import logger from "../utils/logger.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {

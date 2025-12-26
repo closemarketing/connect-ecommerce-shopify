@@ -3,8 +3,8 @@ import { mockShopifyOrder } from '../fixtures/shopify-order.mock';
 import { 
   syncShopifyLineItemToClientifyProduct,
   syncShopifyLineItemsToClientifyProducts 
-} from '../../app/services/clientify/sync-products-to-clientify.server';
-import { ClientifyService } from '../../app/services/clientify/clientify.server';
+} from '../../app/integrations/clientify/sync-product.server';
+import { ClientifyService } from '../../app/integrations/clientify/clientify-api.server';
 import db from '../../app/db.server';
 
 /**
@@ -44,7 +44,7 @@ describe('Products Integration - Sync to Clientify', () => {
       where: {
         sessionId: testShopDomain,
         integrationId: clientifyIntegration.id,
-        key: 'apiKey',
+        key: 'apiToken',
       },
     });
 

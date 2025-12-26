@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { mockShopifyOrder } from '../fixtures/shopify-order.mock';
-import { syncCompleteShopifyOrderToClientify } from '../../app/services/sync-complete-order-to-clientify.server';
+import { syncCompleteShopifyOrderToClientify } from '../../app/integrations/clientify/sync-complete-order.server';
 import db from '../../app/db.server';
 
 /**
@@ -39,7 +39,7 @@ describe('Complete Order Integration - Sync to Clientify', () => {
       where: {
         sessionId: testShopDomain,
         integrationId: clientifyIntegration.id,
-        key: 'apiKey',
+        key: 'apiToken',
       },
     });
 

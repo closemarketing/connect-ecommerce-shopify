@@ -67,10 +67,28 @@ Registra cada webhook recibido:
 
 ## 🛠️ Servicios Principales
 
-### Clientify Services (`app/services/clientify/`)
-- **clientify.server.ts**: Cliente HTTP para Clientify API
-- **sync-*.server.ts**: Servicios de sincronización específicos
-- **clientify-mapper.server.ts**: Transformación de datos
+### Integrations (`app/integrations/`)
+Cada integración está completamente autocontenida en su propia carpeta:
+
+#### Clientify (`app/integrations/clientify/`)
+- **clientify-adapter.server.ts**: Adaptador que implementa IntegrationAdapter interface
+- **clientify-api.server.ts**: Cliente HTTP para Clientify API
+- **sync-*.server.ts**: Servicios de sincronización específicos (order, customer, product, deal)
+- **clientify-mapper.server.ts**: Transformación de datos Shopify → Clientify
+- **pipeline.server.ts**: Gestión de pipelines y etapas
+- **index.ts**: Exports centralizados de la integración
+
+#### Agora (`app/integrations/agora/`)
+- **agora-adapter.server.ts**: Adaptador stub (pendiente de implementación)
+
+#### Base (`app/integrations/base/`)
+- **integration-adapter.server.ts**: Interface que todas las integraciones deben implementar
+- **types.ts**: Tipos compartidos (SyncResult, CredentialField, etc.)
+- **errors.ts**: Clases de error tipadas
+
+#### Registry (`app/integrations/registry.server.ts`)
+- Sistema centralizado de registro de adaptadores
+- `getAdapter(name)`, `getAllAdapters()`, `getEnabledAdapters()`
 
 ### Logging Services (`app/services/logging/`)
 - **sync-logger.server.ts**: CRUD de SyncLog
@@ -85,14 +103,26 @@ Registra cada webhook recibido:
 
 ### Imports
 ```typescript
-// Services
-import { ClientifyService } from "~/services/clientify/clientify.server";
+// Integrations
+import { ClientifyAdapter } from "~/integrations/clientify";
+import { getAdapter } from "~/integrations/registry.server";
+
+// Logging services
 import { logOrderSync } from "~/services/logging/sync-logger.server";
 
 // Utils
 import logger from "~/utils/logger.server";
 import prisma from "~/db.server";
 ```
+
+### Organización de Integraciones
+Cada integración es un módulo autocontenido que incluye:
+1. **Adapter**: Implementa `IntegrationAdapter` interface
+2. **API Client**: Cliente HTTP para la API externa
+3. **Mappers**: Transformaciones de datos
+4. **Sync Services**: Lógica de sincronización específica
+5. **Types**: Tipos TypeScript específicos de la integración
+6. **index.ts**: Exports centralizados
 
 ## 🔒 Seguridad
 
