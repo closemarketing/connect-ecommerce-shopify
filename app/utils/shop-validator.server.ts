@@ -8,13 +8,15 @@ import { createWebhookLog } from "../services/logging/webhook-logger.server";
  * @param topic Tópico del webhook
  * @param shopifyId ID del objeto en Shopify
  * @param payload Payload del webhook
+ * @param headers Headers del webhook
  * @returns El registro de Shop si está activa, null si está inactiva
  */
 export async function validateShopIsActive(
   shopDomain: string,
   topic: string,
   shopifyId: string | undefined,
-  payload: any
+  payload: any,
+  headers?: Record<string, string | null>
 ): Promise<{ shop: any; webhookLogId: number | null } | null> {
   // Buscar o crear Shop
   let shopRecord = await db.shop.findUnique({
@@ -40,11 +42,11 @@ export async function validateShopIsActive(
     shopId: shopRecord.id,
     topic,
     shopifyId,
-    headers: {},
+    headers: headers || {},
     payload,
     hmacValid: true,
   });
 
   // Después de buscar/crear/reactivar, la tienda siempre estará activa
-  return { shop: shopRecord, webhookLogId: webhookLog.id };
+  return { shop: shopRecord, webhookLogId: webhookLog?.id || null };
 }
