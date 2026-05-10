@@ -2,18 +2,20 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-async function seed() {
-  // Crear integración de Clientify si no existe
-  const clientify = await prisma.integration.upsert({
-    where: { name: "clientify" },
-    update: {},
-    create: {
-      name: "clientify",
-      displayName: "Clientify",
-    },
-  });
+const INTEGRATIONS = [
+  { name: "clientify", displayName: "Clientify" },
+  { name: "holded",    displayName: "Holded"    },
+];
 
-  console.log("✅ Integración Clientify creada:", clientify);
+async function seed() {
+  for (const i of INTEGRATIONS) {
+    const row = await prisma.integration.upsert({
+      where:  { name: i.name },
+      update: { displayName: i.displayName },
+      create: i,
+    });
+    console.log(`✅ Integración ${row.displayName} (${row.name}) lista`);
+  }
 }
 
 seed()

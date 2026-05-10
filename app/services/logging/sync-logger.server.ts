@@ -3,18 +3,22 @@ import logger from "../../utils/logger.server";
 import type { SyncType, SyncStatus } from "@prisma/client";
 
 interface CreateSyncLogParams {
-  shopId: number;
-  syncType: SyncType;
-  shopifyId: string;
-  clientifyId?: number;
+  shopId:        number;
+  syncType:      SyncType;
+  shopifyId:     string;
+  clientifyId?:  number;
   parentOrderId?: string;
-  status: SyncStatus;
-  method?: string;
-  url?: string;
-  queryParams?: Record<string, any>;
+  status:        SyncStatus;
+  method?:       string;
+  url?:          string;
+  queryParams?:  Record<string, any>;
   errorMessage?: string;
-  requestData?: any;
+  requestData?:  any;
   responseData?: any;
+  /** Integration FK — links the log to a specific integration row */
+  integrationId?: number;
+  /** Human-readable ERP name (e.g. "clientify") */
+  erpName?:       string;
 }
 
 /**
@@ -24,18 +28,20 @@ export async function createSyncLog(params: CreateSyncLogParams) {
   try {
     const syncLog = await prisma.syncLog.create({
       data: {
-        shopId: params.shopId,
-        syncType: params.syncType,
-        shopifyId: params.shopifyId,
-        clientifyId: params.clientifyId,
+        shopId:        params.shopId,
+        syncType:      params.syncType,
+        shopifyId:     params.shopifyId,
+        clientifyId:   params.clientifyId,
         parentOrderId: params.parentOrderId,
-        status: params.status,
-        method: params.method,
-        url: params.url,
-        queryParams: params.queryParams ? JSON.stringify(params.queryParams) : null,
-        errorMessage: params.errorMessage,
-        requestData: params.requestData ? JSON.stringify(params.requestData) : null,
-        responseData: params.responseData ? JSON.stringify(params.responseData) : null,
+        status:        params.status,
+        method:        params.method,
+        url:           params.url,
+        queryParams:   params.queryParams ? JSON.stringify(params.queryParams) : null,
+        errorMessage:  params.errorMessage,
+        requestData:   params.requestData  ? JSON.stringify(params.requestData)  : null,
+        responseData:  params.responseData ? JSON.stringify(params.responseData) : null,
+        integrationId: params.integrationId ?? null,
+        erpName:       params.erpName       ?? null,
       },
     });
 
@@ -146,7 +152,9 @@ export async function logOrderSync(
   responseData?: any,
   method?: string,
   url?: string,
-  queryParams?: Record<string, any>
+  queryParams?: Record<string, any>,
+  integrationId?: number,
+  erpName?: string,
 ) {
   return createSyncLog({
     shopId,
@@ -159,6 +167,8 @@ export async function logOrderSync(
     queryParams,
     requestData,
     responseData,
+    integrationId,
+    erpName,
   });
 }
 
@@ -173,7 +183,9 @@ export async function logSyncError(
   requestData?: any,
   method?: string,
   url?: string,
-  queryParams?: Record<string, any>
+  queryParams?: Record<string, any>,
+  integrationId?: number,
+  erpName?: string,
 ) {
   return createSyncLog({
     shopId,
@@ -185,6 +197,8 @@ export async function logSyncError(
     queryParams,
     errorMessage,
     requestData,
+    integrationId,
+    erpName,
   });
 }
 

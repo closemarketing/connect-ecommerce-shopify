@@ -1,4 +1,4 @@
-# Comandos Útiles del Proyecto - Shopify QR Code App
+# Comandos Útiles del Proyecto - connect-ecommerce-shopify
 
 ## 🚀 Desarrollo
 
@@ -61,15 +61,18 @@ Genera el cliente de Prisma después de cambios en el schema.
 
 ### Crear migración
 ```bash
-npm run prisma migrate dev -- --name nombre-de-la-migracion
+.\node_modules\.bin\prisma migrate dev --name nombre-de-la-migracion
 ```
-Crea y aplica una nueva migración a la base de datos.
+Crea y aplica una nueva migración. Usar `.\node_modules\.bin\prisma` en lugar de
+`npx prisma` en Node 20 para evitar que npx resuelva Prisma v7 (requiere Node ≥ 22).
 
 ### Aplicar migraciones (producción)
 ```bash
-npm run prisma migrate deploy
+.\node_modules\.bin\prisma migrate deploy
+.\node_modules\.bin\prisma generate
 ```
-Aplica migraciones pendientes en producción.
+Aplica migraciones pendientes y regenera el cliente. Usar siempre estos dos
+comandos juntos en producción (ver también `npm run docker-start`).
 
 ### Resetear base de datos
 ```bash
@@ -94,6 +97,42 @@ Muestra qué migraciones están aplicadas o pendientes.
 npx prisma format
 ```
 Formatea el archivo schema.prisma automáticamente.
+
+---
+
+## 🔗 Gestión de Integraciones
+
+### Poblar integraciones disponibles en la BD
+```bash
+node prisma/seed.js
+```
+Inserta o actualiza las filas de `Integration` (clientify, holded, …).
+Ejecutar siempre que se añada una nueva integración al seed.
+
+### Añadir una nueva integración — checklist
+
+```
+1. app/services/integrations/registry.server.ts
+   → añadir entrada en INTEGRATION_REGISTRY (metadatos UI: nombre, icono, campos)
+
+2. app/services/erp/<name>/<name>.controller.ts
+   → implementar ERPController: syncOrderToERP() y processWebhook()
+
+3. app/services/integrations/dispatcher.server.ts
+   → añadir factory en CONTROLLER_FACTORIES: { name: (creds) => new Controller(creds) }
+
+4. prisma/seed.js
+   → añadir { name: "slug", displayName: "Nombre" } en INTEGRATIONS[]
+   → ejecutar:  node prisma/seed.js
+```
+
+Ver documentación completa: `docs/PROJECT.md#cómo-añadir-una-nueva-integración`
+
+### Crear migración para cambios en el schema
+```bash
+.\node_modules\.bin\prisma migrate dev --name descripcion-del-cambio
+.\node_modules\.bin\prisma generate
+```
 
 ---
 
@@ -279,12 +318,14 @@ Reinicia la configuración de la app durante desarrollo.
 
 ---
 
-## 📝 Scripts Personalizados
+## 📝 Dependencias clave del proyecto
 
-### Paquetes instalados para este proyecto
-- `qrcode` - Generar códigos QR
-- `@shopify/polaris-icons` - Iconos de Polaris
-- `tiny-invariant` - Validación y manejo de errores
+- `@shopify/shopify-app-react-router` — SDK Shopify para React Router v7
+- `@prisma/client` + `prisma` — ORM + migraciones
+- `react-router` — Framework SSR
+- `winston` — Logging estructurado
+- `zod` — Validación de esquemas
+- `vitest` — Testing
 
 ### Instalar nueva dependencia
 ```bash
@@ -313,31 +354,30 @@ Una vez que `npm run dev` esté corriendo:
 
 ```bash
 # Desarrollo diario
-npm run dev                              # Iniciar desarrollo
-shopify app dev                          # Igual que npm run dev
-shopify app dev --reset                  # Reiniciar con reset de config
-npm run prisma studio                    # Ver base de datos
+npm run dev                                       # Iniciar desarrollo
+shopify app dev --reset                           # Reiniciar con reset de config
+npm run prisma studio                             # Ver base de datos en el navegador
 
-# Cambios en base de datos
-npx prisma migrate dev -- --name cambio  # Nueva migración
-npx prisma generate                      # Regenerar cliente
-npx prisma studio                        # Abrir Prisma Studio
+# Base de datos
+.\node_modules\.bin\prisma migrate dev --name x  # Nueva migración
+.\node_modules\.bin\prisma generate               # Regenerar cliente
+.\node_modules\.bin\prisma migrate deploy         # Aplicar en producción
+node prisma/seed.js                               # Insertar/actualizar integraciones
 
 # Shopify CLI
-shopify app info                         # Info de la app
-shopify app generate                     # Generar extensión
-shopify app webhook trigger              # Probar webhooks
-shopify app env show                     # Ver variables de entorno
-shopify version                          # Versión del CLI
+shopify app info                                  # Info de la app
+shopify app generate                              # Generar extensión
+shopify app webhook trigger                       # Probar webhooks
+shopify app env show                              # Ver variables de entorno
+shopify version                                   # Versión del CLI
 
-# Despliegue
-npm run build                            # Compilar
-npm run deploy                           # Desplegar
-shopify app deploy                       # Igual que npm run deploy
+# Build y despliegue
+npm run build                                     # Compilar
+npm run deploy                                    # Desplegar
 
 # Calidad de código
-npm run lint                             # Verificar código
-npm run typecheck                        # Verificar tipos
+npm run lint                                      # Verificar código
+npm run typecheck                                 # Verificar tipos TypeScript
 ```
 
 ---
