@@ -11,17 +11,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
   
   // Crear o actualizar el registro de Shop
   const shopDomain = session.shop;
-  let shopRecord = await prisma.shop.findUnique({
-    where: { domain: shopDomain }
+  const shopRecord = await prisma.shop.upsert({
+    where: { domain: shopDomain },
+    update: {},
+    create: { domain: shopDomain },
   });
-
-  if (!shopRecord) {
-    console.log('📦 Creando nuevo Shop:', shopDomain);
-    shopRecord = await prisma.shop.create({
-      data: { domain: shopDomain }
-    });
-    console.log('✅ Shop creado con ID:', shopRecord.id);
-  }
+  console.log('✅ Shop ID:', shopRecord.id);
 
   // Actualizar la sesión con el shopId si no lo tiene
   if (!session.shopId) {
