@@ -59,12 +59,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
     // Obtener stages del pipeline default (si existe)
     let stages: ClientifyStage[] = [];
-    if (pipelineConfigs.length > 0 && pipelineConfigs[0].clientifyPipelineId) {
+    if (pipelineConfigs.length > 0 && pipelineConfigs[0].externalPipelineId) {
       const pipelineWithStages = await service.getPipeline(
-        pipelineConfigs[0].clientifyPipelineId
+        pipelineConfigs[0].externalPipelineId
       );
       stages = pipelineWithStages.stages || [];
-      logger.info(`📋 Stages del pipeline ${pipelineConfigs[0].clientifyPipelineId}: ${stages.length}`);
+      logger.info(`📋 Stages del pipeline ${pipelineConfigs[0].externalPipelineId}: ${stages.length}`);
     }
 
     return {
@@ -186,19 +186,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         // Crear o actualizar pipeline config
         const pipelineConfig = await db.pipelineConfig.upsert({
           where: {
-            shopId_clientifyPipelineId: {
+            shopId_externalPipelineId: {
               shopId: shopRecord.id,
-              clientifyPipelineId: pipelineId,
+              externalPipelineId: pipelineId,
             },
           },
           update: {
             isDefault: true,
-            clientifyPipelineName: pipelineName,
+            externalPipelineName: pipelineName,
           },
           create: {
             shopId: shopRecord.id,
-            clientifyPipelineId: pipelineId,
-            clientifyPipelineName: pipelineName,
+            externalPipelineId: pipelineId,
+            externalPipelineName: pipelineName,
             isDefault: true,
           },
           include: {
@@ -227,8 +227,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
                 data: {
                   pipelineConfigId: pipelineConfig.id,
                   shopifyOrderStatus: statusConfig.value,
-                  clientifyStageId: matchingStage.id,
-                  clientifyStageName: matchingStage.name,
+                  externalStageId: matchingStage.id,
+                  externalStageName: matchingStage.name,
                 },
               });
             } else {
@@ -312,14 +312,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             },
           },
           update: {
-            clientifyStageId: stageId,
-            clientifyStageName: stageName,
+            externalStageId: stageId,
+            externalStageName: stageName,
           },
           create: {
             pipelineConfigId,
             shopifyOrderStatus,
-            clientifyStageId: stageId,
-            clientifyStageName: stageName,
+            externalStageId: stageId,
+            externalStageName: stageName,
           },
         });
 

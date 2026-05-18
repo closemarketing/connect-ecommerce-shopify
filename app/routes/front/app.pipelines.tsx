@@ -121,13 +121,13 @@ export default function PipelineConfiguration() {
       return;
     }
 
-    if (!confirm(`¿Crear stage "${newStageName}" en el pipeline "${defaultConfig.clientifyPipelineName}"?`)) {
+    if (!confirm(`¿Crear stage "${newStageName}" en el pipeline "${defaultConfig.externalPipelineName}"?`)) {
       return;
     }
 
     const formData = new FormData();
     formData.append("action", "create_stage");
-    formData.append("pipelineId", defaultConfig.clientifyPipelineId.toString());
+    formData.append("pipelineId", defaultConfig.externalPipelineId.toString());
     formData.append("name", newStageName);
     formData.append("position", newStagePosition.toString());
     formData.append("probability", newStageProbability.toString());
@@ -183,7 +183,7 @@ export default function PipelineConfiguration() {
         <s-text variant="headingMd" as="h2">1. Seleccionar Pipeline</s-text>
         <s-block-stack gap="400">
           <s-text as="p">
-            Pipeline actual: {defaultConfig ? <strong>{defaultConfig.clientifyPipelineName}</strong> : <em>Ninguno</em>}
+            Pipeline actual: {defaultConfig ? <strong>{defaultConfig.externalPipelineName}</strong> : <em>Ninguno</em>}
           </s-text>
 
           <div style={{ marginBottom: '1rem' }}>
@@ -205,7 +205,7 @@ export default function PipelineConfiguration() {
               {pipelines && pipelines.length > 0 ? (
                 pipelines.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} {defaultConfig?.clientifyPipelineId === p.id ? "(actual)" : ""}
+                    {p.name} {defaultConfig?.externalPipelineId === p.id ? "(actual)" : ""}
                   </option>
                 ))
               ) : (
@@ -256,7 +256,7 @@ export default function PipelineConfiguration() {
           <s-text variant="headingMd" as="h2">2. Mapear Estados de Pedidos</s-text>
           <s-block-stack gap="400">
             <s-banner tone="info">
-              <p><strong>Pipeline: {defaultConfig.clientifyPipelineName}</strong></p>
+              <p><strong>Pipeline: {defaultConfig.externalPipelineName}</strong></p>
               <p>Los estados de Shopify se han mapeado automáticamente a los stages correspondientes. Puedes cambiar estos mapeos si lo necesitas.</p>
             </s-banner>
 
@@ -264,7 +264,7 @@ export default function PipelineConfiguration() {
 
             {(() => {
               const pipelineStages = stages.filter(s =>
-                s.pipeline.includes(`/${defaultConfig.clientifyPipelineId}/`)
+                s.pipeline.includes(`/${defaultConfig.externalPipelineId}/`)
               );
 
               if (pipelineStages.length === 0) {
@@ -299,7 +299,7 @@ export default function PipelineConfiguration() {
                             fontSize: '14px',
                             minWidth: '250px'
                           }}
-                          value={mapping?.clientifyStageId?.toString() || ""}
+                          value={mapping?.externalStageId?.toString() || ""}
                           onChange={(e) => {
                             const stageId = parseInt(e.target.value);
                             const stage = pipelineStages.find(s => s.id === stageId);
@@ -382,7 +382,7 @@ export default function PipelineConfiguration() {
 
             {(() => {
               const pipelineStages = stages.filter(s =>
-                s.pipeline.includes(`/${defaultConfig.clientifyPipelineId}/`)
+                s.pipeline.includes(`/${defaultConfig.externalPipelineId}/`)
               );
 
               return (

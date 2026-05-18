@@ -106,9 +106,9 @@ export class ClientifyController implements ERPController {
 				const stageMapping = pipelineConfig.stageMappings.find((m) => m.shopifyOrderStatus === status);
 
 				if (stageMapping) {
-					dealData.pipeline       = `https://api.clientify.net/v1/deals/pipelines/${pipelineConfig.clientifyPipelineId}/`;
-					dealData.pipeline_stage = `https://api.clientify.net/v1/deals/pipelines/stages/${stageMapping.clientifyStageId}/`;
-					logger.info(`📍 Pipeline: ${pipelineConfig.clientifyPipelineName}, Stage: ${stageMapping.clientifyStageName} (${status})`);
+					dealData.pipeline       = `https://api.clientify.net/v1/deals/pipelines/${pipelineConfig.externalPipelineId}/`;
+					dealData.pipeline_stage = `https://api.clientify.net/v1/deals/pipelines/stages/${stageMapping.externalStageId}/`;
+					logger.info(`📍 Pipeline: ${pipelineConfig.externalPipelineName}, Stage: ${stageMapping.externalStageName} (${status})`);
 				} else {
 					logger.warn(`⚠️ No se encontró mapeo para el estado: ${status}`);
 				}

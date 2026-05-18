@@ -295,7 +295,7 @@ export class ClientifyService {
 		}
 
 		const pipeline = await res.json();
-		await createSyncLog({ shopId, syncType: "PIPELINE", shopifyId: `pipeline-${name}`, clientifyId: pipeline.id, status: "SUCCESS", method: "POST", url, requestData: body, responseData: pipeline }).catch(() => null);
+		await createSyncLog({ shopId, syncType: "PIPELINE", shopifyId: `pipeline-${name}`, externalId: pipeline.id, status: "SUCCESS", method: "POST", url, requestData: body, responseData: pipeline }).catch(() => null);
 		logger.info(`✅ Pipeline "${name}" creado con ID: ${pipeline.id}`);
 		return pipeline;
 	}
@@ -340,7 +340,7 @@ export class ClientifyService {
 		}
 
 		const stage = await res.json();
-		await createSyncLog({ shopId, syncType: "STAGE", shopifyId: `stage-${pipelineId}-${name}`, clientifyId: stage.id, status: "SUCCESS", method: "POST", url, requestData: body, responseData: stage }).catch(() => null);
+		await createSyncLog({ shopId, syncType: "STAGE", shopifyId: `stage-${pipelineId}-${name}`, externalId: stage.id, status: "SUCCESS", method: "POST", url, requestData: body, responseData: stage }).catch(() => null);
 		logger.info(`✅ Stage "${name}" creado con ID: ${stage.id}`);
 		return stage;
 	}
@@ -363,7 +363,7 @@ export class ClientifyService {
 		}
 
 		const stage = await res.json();
-		await createSyncLog({ shopId, syncType: "STAGE", shopifyId: `stage-update-${stageId}`, clientifyId: stage.id, status: "SUCCESS", method: "PATCH", url, requestData: body, responseData: stage }).catch(() => null);
+		await createSyncLog({ shopId, syncType: "STAGE", shopifyId: `stage-update-${stageId}`, externalId: stage.id, status: "SUCCESS", method: "PATCH", url, requestData: body, responseData: stage }).catch(() => null);
 		return stage;
 	}
 

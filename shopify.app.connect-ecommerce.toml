@@ -1,0 +1,19 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "c70f869c65c2cdb60a433a93ac0ff0e5"
+application_url = "https://app.connect-ecommerce.com/"
+embedded = true
+name = "Connect Ecommerce"
+handle = "connect-ecommerce"
+
+[pos]
+embedded = false
+
+[auth]
+redirect_urls = [ "https://app.connect-ecommerce.com/authenticate" ]
+
+[webhooks]
+api_version = "2025-07"
+
+[build]
+automatically_update_urls_on_dev = true

@@ -6,7 +6,7 @@ interface CreateSyncLogParams {
   shopId:        number;
   syncType:      SyncType;
   shopifyId:     string;
-  clientifyId?:  number;
+  externalId?:  number;
   parentOrderId?: string;
   status:        SyncStatus;
   method?:       string;
@@ -31,7 +31,7 @@ export async function createSyncLog(params: CreateSyncLogParams) {
         shopId:        params.shopId,
         syncType:      params.syncType,
         shopifyId:     params.shopifyId,
-        clientifyId:   params.clientifyId,
+        externalId:   params.externalId,
         parentOrderId: params.parentOrderId,
         status:        params.status,
         method:        params.method,
@@ -60,7 +60,7 @@ export async function createSyncLog(params: CreateSyncLogParams) {
 export async function logCustomerSync(
   shopId: number,
   shopifyCustomerId: string,
-  clientifyContactId: number,
+  externalContactId: number,
   requestData?: any,
   responseData?: any,
   parentOrderId?: string,
@@ -72,7 +72,7 @@ export async function logCustomerSync(
     shopId,
     syncType: "CUSTOMER",
     shopifyId: shopifyCustomerId,
-    clientifyId: clientifyContactId,
+    externalId: externalContactId,
     parentOrderId,
     status: "SUCCESS",
     method,
@@ -89,7 +89,7 @@ export async function logCustomerSync(
 export async function logProductSync(
   shopId: number,
   shopifyVariantId: string,
-  clientifyProductId: number,
+  externalProductId: number,
   requestData?: any,
   responseData?: any,
   parentOrderId?: string,
@@ -101,7 +101,7 @@ export async function logProductSync(
     shopId,
     syncType: "PRODUCT",
     shopifyId: shopifyVariantId,
-    clientifyId: clientifyProductId,
+    externalId: externalProductId,
     parentOrderId,
     status: "SUCCESS",
     method,
@@ -118,7 +118,7 @@ export async function logProductSync(
 export async function logDealSync(
   shopId: number,
   shopifyOrderId: string,
-  clientifyDealId: number,
+  externalDealId: number,
   requestData?: any,
   responseData?: any,
   parentOrderId?: string,
@@ -130,7 +130,7 @@ export async function logDealSync(
     shopId,
     syncType: "DEAL",
     shopifyId: shopifyOrderId,
-    clientifyId: clientifyDealId,
+    externalId: externalDealId,
     parentOrderId,
     status: "SUCCESS",
     method,
@@ -147,7 +147,7 @@ export async function logDealSync(
 export async function logOrderSync(
   shopId: number,
   shopifyOrderId: string,
-  clientifyDealId: number,
+  externalDealId: number,
   requestData?: any,
   responseData?: any,
   method?: string,
@@ -160,7 +160,7 @@ export async function logOrderSync(
     shopId,
     syncType: "ORDER",
     shopifyId: shopifyOrderId,
-    clientifyId: clientifyDealId,
+    externalId: externalDealId,
     status: "SUCCESS",
     method,
     url,

@@ -601,7 +601,7 @@ export default function SyncLogs() {
                       {log.shopifyId.length > 20 ? log.shopifyId.substring(log.shopifyId.lastIndexOf('/') + 1) : log.shopifyId}
                     </td>
                     <td style={{ padding: "6px 8px", fontSize: "11px", fontFamily: "monospace", color: "#666" }}>
-                      {log.clientifyId || "-"}
+                      {log.externalId || "-"}
                     </td>
                     <td style={{ padding: "6px 8px", fontSize: "11px", fontFamily: "monospace", color: "#999" }}>
                       {log.parentOrderId || "-"}
@@ -684,7 +684,7 @@ export default function SyncLogs() {
               <div><strong>Fecha:</strong> {new Date(selectedLog.createdAt).toLocaleString("es-ES")}</div>
               <div><strong>Tipo:</strong> {selectedLog.syncType}</div>
               <div><strong>Shopify ID:</strong> <code style={{ fontSize: "11px", background: "#f6f6f7", padding: "2px 4px", borderRadius: "3px" }}>{selectedLog.shopifyId}</code></div>
-              <div><strong>Clientify ID:</strong> {selectedLog.clientifyId || "N/A"}</div>
+              <div><strong>Clientify ID:</strong> {selectedLog.externalId || "N/A"}</div>
               {selectedLog.parentOrderId && (
                 <div><strong>Parent Order ID:</strong> <code style={{ fontSize: "11px", background: "#f6f6f7", padding: "2px 4px", borderRadius: "3px" }}>{selectedLog.parentOrderId}</code></div>
               )}

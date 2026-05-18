@@ -118,7 +118,7 @@ model SyncLog {
   shopId        Int // FK a Shop
   syncType      SyncType // Tipo de objeto sincronizado
   shopifyId     String // ID del objeto en Shopify
-  clientifyId   Int? // ID resultante en Clientify (null si error)
+  externalId    String? // ID resultante en el ERP externo (null si error)
   parentOrderId String? // ID de la orden padre si esta sync pertenece a una orden
   status        SyncStatus // Estado de la sincronización
   direction     SyncDirection  @default(SHOPIFY_TO_ERP)
@@ -190,24 +190,26 @@ model WebhookLog {
 model PipelineConfig {
   id                    Int      @id @default(autoincrement())
   shopId                Int // FK a Shop
-  clientifyPipelineId   Int // ID del pipeline en Clientify
-  clientifyPipelineName String // Nombre del pipeline
-  isDefault             Boolean  @default(false) // Si es el pipeline por defecto
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  externalPipelineId   String // ID del pipeline en el ERP externo
+  externalPipelineName String // Nombre del pipeline
+  integrationId        Int // FK a Integration
+  isDefault            Boolean  @default(false) // Si es el pipeline por defecto
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   stageMappings OrderStageMapping[]
 
-  @@unique([shopId, clientifyPipelineId])
+  @@unique([shopId, integrationId, externalPipelineId])
   @@index([shopId])
+  @@index([integrationId])
 }
 
 model OrderStageMapping {
   id                 Int      @id @default(autoincrement())
   pipelineConfigId   Int // FK a PipelineConfig
   shopifyOrderStatus String // Estado de Shopify: pending, authorized, partially_paid, paid, partially_refunded, refunded, voided
-  clientifyStageId   Int // ID del stage en Clientify
-  clientifyStageName String // Nombre del stage
+  externalStageId   String // ID del stage en el ERP externo
+  externalStageName String // Nombre del stage
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
