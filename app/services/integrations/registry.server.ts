@@ -18,6 +18,7 @@ export interface CredentialField {
 
 export interface IntegrationDefinition {
 	name:         string;          // unique slug, must match DB Integration.name
+	hidden?:      boolean;         // if true, not shown in the integrations list
 	displayName:  string;
 	description:  string;
 	icon?:        string;          // emoji or asset path
@@ -35,10 +36,10 @@ export interface IntegrationDefinition {
 export const INTEGRATION_REGISTRY: IntegrationDefinition[] = [
 	{
 		name:        "clientify",
+		hidden:      true,
 		displayName: "Clientify",
 		description: "Sincroniza clientes, productos y pedidos con Clientify CRM.",
 		icon:        "🟢",
-		logoUrl:     "https://logo.clearbit.com/clientify.com",
 		docsUrl:     "https://docs.clientify.com/api",
 		websiteUrl:  "https://clientify.com",
 		credentials: [
@@ -60,7 +61,6 @@ export const INTEGRATION_REGISTRY: IntegrationDefinition[] = [
 		displayName: "Holded",
 		description: "Sincroniza contactos, productos y facturas con Holded ERP.",
 		icon:        "🟣",
-		logoUrl:     "https://logo.clearbit.com/holded.com",
 		docsUrl:     "https://developers.holded.com/reference",
 		websiteUrl:  "https://www.holded.com",
 		credentials: [
@@ -80,5 +80,5 @@ export function getIntegrationDefinition(name: string): IntegrationDefinition | 
 }
 
 export function listIntegrationDefinitions(): IntegrationDefinition[] {
-	return INTEGRATION_REGISTRY;
+	return INTEGRATION_REGISTRY.filter((i) => !i.hidden);
 }
