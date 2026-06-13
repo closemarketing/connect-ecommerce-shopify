@@ -54,7 +54,7 @@ describe('Deal Integration - Sync to Clientify', () => {
     apiToken = integrationCredential.value;
     
     // Obtener el owner ID desde la cuenta de Clientify
-    const clientifyService = new ClientifyService({ apiToken });
+    const clientifyService = new ClientifyService(apiToken);
     const accountInfo = await clientifyService.getAccountInfo();
     ownerId = accountInfo.id;
     

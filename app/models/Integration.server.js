@@ -132,3 +132,90 @@ export async function getAllCredentialsByShop(sessionId) {
     return acc;
   }, {});
 }
+
+/**
+ * Garantiza que exista un registro Shop para el dominio dado y devuelve el id.
+ */
+async function ensureShopId(shopDomain) {
+  const shop = await db.shop.upsert({
+    where:  { domain: shopDomain },
+    update: {},
+    create: { domain: shopDomain },
+  });
+  return shop.id;
+}
+
+/**
+ * Devuelve el estado (activo/inactivo + credenciales) de cada integración
+ * disponible para una tienda. Retorna una entrada por cada Integration en BD.
+ */
+export async function getShopIntegrationsState(shopDomain) {
+  const shopId        = await ensureShopId(shopDomain);
+  const integrations  = await db.integration.findMany({ orderBy: { name: "asc" } });
+  const shopLinks     = await db.shopIntegration.findMany({ where: { shopId } });
+  const allCreds      = await getAllCredentialsByShop(shopDomain);
+
+  const linkByIntId = new Map(shopLinks.map((l) => [l.integrationId, l]));
+
+  return integrations.map((integration) => {
+    const link        = linkByIntId.get(integration.id);
+    const credsBundle = allCreds[integration.name];
+    return {
+      id:            integration.id,
+      name:          integration.name,
+      displayName:   integration.displayName,
+      active:        Boolean(link?.active),
+      hasCredentials: Boolean(credsBundle && Object.keys(credsBundle.credentials).length > 0),
+      credentials:   credsBundle?.credentials ?? {},
+    };
+  });
+}
+
+/**
+ * Devuelve sólo las integraciones activas para una tienda.
+ */
+export async function getActiveIntegrations(shopDomain) {
+  const shopId = await ensureShopId(shopDomain);
+  const links  = await db.shopIntegration.findMany({
+    where:   { shopId, active: true },
+    include: { integration: true },
+    orderBy: { integration: { name: "asc" } },
+  });
+  return links.map((l) => ({
+    id:          l.integration.id,
+    name:        l.integration.name,
+    displayName: l.integration.displayName,
+  }));
+}
+
+/**
+ * Activa o desactiva una integración para una tienda.
+ * Si no existe registro ShopIntegration lo crea.
+ */
+export async function setIntegrationActive(shopDomain, integrationName, active) {
+  const shopId      = await ensureShopId(shopDomain);
+  const integration = await getIntegrationByName(integrationName);
+  if (!integration) {
+    throw new Error(`Integración no encontrada: ${integrationName}`);
+  }
+
+  return db.shopIntegration.upsert({
+    where:  { shopId_integrationId: { shopId, integrationId: integration.id } },
+    update: { active },
+    create: { shopId, integrationId: integration.id, active },
+  });
+}
+
+/**
+ * Indica si una integración concreta está activa para una tienda.
+ */
+export async function isIntegrationActive(shopDomain, integrationName) {
+  const shopId      = await ensureShopId(shopDomain);
+  const integration = await getIntegrationByName(integrationName);
+  if (!integration) return false;
+
+  const link = await db.shopIntegration.findUnique({
+    where: { shopId_integrationId: { shopId, integrationId: integration.id } },
+  });
+  return Boolean(link?.active);
+}

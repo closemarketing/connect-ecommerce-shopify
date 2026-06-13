@@ -20,10 +20,12 @@ model Shop {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sessions    Session[]
-  orders      Order[]
-  syncLogs    SyncLog[]
-  webhookLogs WebhookLog[]
+  sessions          Session[]
+  orders            Order[]
+  syncLogs          SyncLog[]
+  webhookLogs       WebhookLog[]
+  erpWebhookConfigs ERPWebhookConfig[]
+  shopIntegrations  ShopIntegration[]
 }
 
 model Session {
@@ -54,12 +56,32 @@ model Session {
 }
 
 model Integration {
-  id          Int                     @id @default(autoincrement())
-  name        String                  @unique
-  displayName String
-  createdAt   DateTime                @default(now())
-  updatedAt   DateTime                @updatedAt
-  credentials IntegrationCredential[]
+  id               Int                     @id @default(autoincrement())
+  name             String                  @unique
+  displayName      String
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  credentials      IntegrationCredential[]
+  shopIntegrations ShopIntegration[]
+  syncLogs         SyncLog[]
+  webhookLogs      WebhookLog[]
+}
+
+// Tracks which integrations are enabled per shop
+model ShopIntegration {
+  id            Int         @id @default(autoincrement())
+  shopId        Int
+  integrationId Int
+  active        Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  shop        Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, integrationId])
+  @@index([shopId])
+  @@index([integrationId])
 }
 
 model IntegrationCredential {
@@ -92,27 +114,33 @@ model Order {
 }
 
 model SyncLog {
-  id            Int        @id @default(autoincrement())
+  id            Int            @id @default(autoincrement())
   shopId        Int // FK a Shop
   syncType      SyncType // Tipo de objeto sincronizado
   shopifyId     String // ID del objeto en Shopify
-  clientifyId   Int? // ID resultante en Clientify (null si error)
+  externalId    String? // ID resultante en el ERP externo (null si error)
   parentOrderId String? // ID de la orden padre si esta sync pertenece a una orden
   status        SyncStatus // Estado de la sincronización
+  direction     SyncDirection  @default(SHOPIFY_TO_ERP)
+  erpName       String?        // Nombre del ERP (clientify, holded, ...)
+  integrationId Int?           // FK a Integration
   method        String? // Método HTTP: GET, POST, PUT, DELETE, etc
-  url           String?    @db.Text // URL completa de la llamada a la API
-  queryParams   String?    @db.Text // JSON de parámetros query si aplica
-  errorMessage  String?    @db.Text // Mensaje de error si aplica
-  requestData   String?    @db.LongText // JSON del request (opcional)
-  responseData  String?    @db.LongText // JSON del response (opcional)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  url           String?        @db.Text // URL completa de la llamada a la API
+  queryParams   String?        @db.Text // JSON de parámetros query si aplica
+  errorMessage  String?        @db.Text // Mensaje de error si aplica
+  requestData   String?        @db.LongText // JSON del request (opcional)
+  responseData  String?        @db.LongText // JSON del response (opcional)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
-  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop        Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  integration Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
 
   @@index([shopId])
   @@index([syncType])
   @@index([status])
+  @@index([erpName])
+  @@index([integrationId])
   @@index([createdAt])
   @@index([parentOrderId])
 }
@@ -131,21 +159,29 @@ enum SyncStatus {
   ERROR
 }
 
-model WebhookLog {
-  id           Int      @id @default(autoincrement())
-  shopId       Int // FK a Shop
-  topic        String // Ej: "orders/create", "orders/updated"
-  shopifyId    String? // ID del objeto en Shopify (extraído del payload)
-  headers      String   @db.Text // JSON de headers relevantes
-  payload      String   @db.LongText // JSON completo del webhook
-  hmacValid    Boolean? // Si se validó el HMAC
-  processed    Boolean  @default(false) // Si se procesó exitosamente
-  errorMessage String?  @db.Text // Error si hubo al procesar
-  createdAt    DateTime @default(now())
+enum SyncDirection {
+  SHOPIFY_TO_ERP
+  ERP_TO_SHOPIFY
+}
 
-  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+model WebhookLog {
+  id            Int      @id @default(autoincrement())
+  shopId        Int // FK a Shop
+  integrationId Int?     // FK a Integration (null = webhook de Shopify genérico)
+  topic         String // Ej: "orders/create", "orders/updated"
+  shopifyId     String? // ID del objeto en Shopify (extraído del payload)
+  headers       String   @db.Text // JSON de headers relevantes
+  payload       String   @db.LongText // JSON completo del webhook
+  hmacValid     Boolean? // Si se validó el HMAC
+  processed     Boolean  @default(false) // Si se procesó exitosamente
+  errorMessage  String?  @db.Text // Error si hubo al procesar
+  createdAt     DateTime @default(now())
+
+  shop        Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  integration Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
 
   @@index([shopId])
+  @@index([integrationId])
   @@index([topic])
   @@index([createdAt])
   @@index([processed])
@@ -154,24 +190,26 @@ model WebhookLog {
 model PipelineConfig {
   id                    Int      @id @default(autoincrement())
   shopId                Int // FK a Shop
-  clientifyPipelineId   Int // ID del pipeline en Clientify
-  clientifyPipelineName String // Nombre del pipeline
-  isDefault             Boolean  @default(false) // Si es el pipeline por defecto
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  externalPipelineId   String // ID del pipeline en el ERP externo
+  externalPipelineName String // Nombre del pipeline
+  integrationId        Int // FK a Integration
+  isDefault            Boolean  @default(false) // Si es el pipeline por defecto
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   stageMappings OrderStageMapping[]
 
-  @@unique([shopId, clientifyPipelineId])
+  @@unique([shopId, integrationId, externalPipelineId])
   @@index([shopId])
+  @@index([integrationId])
 }
 
 model OrderStageMapping {
   id                 Int      @id @default(autoincrement())
   pipelineConfigId   Int // FK a PipelineConfig
   shopifyOrderStatus String // Estado de Shopify: pending, authorized, partially_paid, paid, partially_refunded, refunded, voided
-  clientifyStageId   Int // ID del stage en Clientify
-  clientifyStageName String // Nombre del stage
+  externalStageId   String // ID del stage en el ERP externo
+  externalStageName String // Nombre del stage
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -179,4 +217,30 @@ model OrderStageMapping {
 
   @@unique([pipelineConfigId, shopifyOrderStatus])
   @@index([pipelineConfigId])
+}
+
+// Admin panel user (internal use only — not Shopify merchants)
+model AdminUser {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ERP webhook configuration per shop (bidirectional sync)
+model ERPWebhookConfig {
+  id            Int       @id @default(autoincrement())
+  shopId        Int
+  erpName       String // "clientify", "holded", ...
+  webhookSecret String? // HMAC secret for validating inbound ERP webhooks
+  lastSyncAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([shopId, erpName])
+  @@index([shopId])
 }

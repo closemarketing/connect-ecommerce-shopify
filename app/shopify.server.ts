@@ -2,10 +2,14 @@ import "@shopify/shopify-app-react-router/adapters/node";
 import {
   ApiVersion,
   AppDistribution,
+  BillingInterval,
   shopifyApp,
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
+
+// ── Billing plan keys — import these wherever you need to check/request ───────
+export const PLAN_HOLDED = "Holded — €19/month";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -18,6 +22,18 @@ const shopify = shopifyApp({
   distribution: AppDistribution.AppStore,
   future: {
     expiringOfflineAccessTokens: true,
+  },
+  billing: {
+    [PLAN_HOLDED]: {
+      lineItems: [
+        {
+          amount:       19,
+          currencyCode: "EUR",
+          interval:     BillingInterval.Every30Days,
+        },
+      ],
+      trialDays: 14,
+    },
   },
   webhooks: {
     ORDERS_CREATE: {
@@ -35,41 +51,18 @@ const shopify = shopifyApp({
   },
   hooks: {
     afterAuth: async ({ session }) => {
-      console.log('🔵 afterAuth hook ejecutado para:', session.shop);
-      
-      // Crear o buscar el registro de Shop y actualizar la sesión con shopId
       const shopDomain = session.shop;
-      let shopRecord = await prisma.shop.findUnique({
-        where: { domain: shopDomain }
+
+      const shopRecord = await prisma.shop.upsert({
+        where:  { domain: shopDomain },
+        update: { active: true },
+        create: { domain: shopDomain, active: true },
       });
 
-      if (!shopRecord) {
-        console.log('📦 Creando nuevo Shop:', shopDomain);
-        shopRecord = await prisma.shop.create({
-          data: { domain: shopDomain, active: true }
-        });
-        console.log('✅ Shop creado con ID:', shopRecord.id);
-      } else {
-        console.log('✅ Shop encontrado con ID:', shopRecord.id);
-        
-        // Si la tienda existe pero está inactiva, reactivarla (reinstalación)
-        if (!shopRecord.active) {
-          console.log('🔄 Shop inactiva, reactivando...');
-          shopRecord = await prisma.shop.update({
-            where: { id: shopRecord.id },
-            data: { active: true }
-          });
-          console.log('✅ Shop reactivada');
-        }
-      }
-
-      // Actualizar la sesión con el shopId
-      console.log('🔄 Actualizando sesión con shopId:', shopRecord.id);
       await prisma.session.update({
         where: { id: session.id },
-        data: { shopId: shopRecord.id }
-      });
-      console.log('✅ Sesión actualizada correctamente');
+        data:  { shopId: shopRecord.id },
+      }).catch(() => null);
 
       shopify.registerWebhooks({ session });
     },
