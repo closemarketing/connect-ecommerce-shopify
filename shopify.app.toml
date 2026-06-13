@@ -1,10 +1,13 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "b01d9a444dbb97d125bbf5d28daf46a0"
+client_id = "c70f869c65c2cdb60a433a93ac0ff0e5"
 application_url = "https://app.connect-ecommerce.com/"
 embedded = true
 name = "Connect Ecommerce"
 handle = "connect-ecommerce"
+
+[pos]
+embedded = false
 
 [build]
 automatically_update_urls_on_dev = true
@@ -25,4 +28,4 @@ api_version = "2026-01"
 scopes = "write_products,read_customers,read_orders"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://app.connect-ecommerce.com/authenticate" ]
