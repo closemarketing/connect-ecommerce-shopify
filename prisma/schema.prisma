@@ -20,10 +20,11 @@ model Shop {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sessions    Session[]
-  orders      Order[]
-  syncLogs    SyncLog[]
-  webhookLogs WebhookLog[]
+  sessions       Session[]
+  orders         Order[]
+  syncLogs       SyncLog[]
+  webhookLogs    WebhookLog[]
+  holdedSyncJobs HoldedSyncJob[]
 }
 
 model Session {
@@ -124,6 +125,7 @@ enum SyncType {
   ORDER
   PIPELINE
   STAGE
+  HOLDED_PRODUCT
 }
 
 enum SyncStatus {
@@ -179,4 +181,31 @@ model OrderStageMapping {
 
   @@unique([pipelineConfigId, shopifyOrderStatus])
   @@index([pipelineConfigId])
+}
+
+enum HoldedSyncStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model HoldedSyncJob {
+  id             Int              @id @default(autoincrement())
+  shopId         Int
+  status         HoldedSyncStatus @default(PENDING)
+  totalProducts  Int?
+  syncedProducts Int              @default(0)
+  errorCount     Int              @default(0)
+  log            String?          @db.LongText
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([status])
+  @@index([createdAt])
 }
