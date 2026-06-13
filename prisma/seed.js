@@ -14,6 +14,17 @@ async function seed() {
   });
 
   console.log("✅ Integración Clientify creada:", clientify);
+
+  const holded = await prisma.integration.upsert({
+    where: { name: "holded" },
+    update: {},
+    create: {
+      name: "holded",
+      displayName: "Holded ERP",
+    },
+  });
+
+  console.log("✅ Integración Holded creada:", holded);
 }
 
 seed()
