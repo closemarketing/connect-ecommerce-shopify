@@ -61,7 +61,7 @@ async function fetchHoldedProductCount(shopDomain: string): Promise<number> {
     let cursor: string | undefined;
     do {
       const page = await svc.listProducts(100, cursor);
-      count += page.items?.length ?? 0;
+      count += (page.items ?? []).filter((p) => !p.archived).length;
       cursor = page.has_more ? page.cursor : undefined;
     } while (cursor);
     return count;
