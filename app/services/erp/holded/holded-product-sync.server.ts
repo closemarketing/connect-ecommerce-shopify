@@ -18,7 +18,6 @@ const PRODUCTS_QUERY = `#graphql
                 id
                 sku
                 price
-                inventoryQuantity
                 title
               }
             }
