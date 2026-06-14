@@ -1,4 +1,4 @@
-import { HoldedService } from "./holded.service";
+import { HoldedService, parseHoldedPrice } from "./holded.service";
 import { createSyncLog } from "../../logging/sync-logger.server";
 
 const PRODUCTS_QUERY = `#graphql
@@ -29,13 +29,58 @@ const PRODUCTS_QUERY = `#graphql
   }
 `;
 
+export class ShopifyProductAccessDeniedError extends Error {
+  constructor(cause?: unknown) {
+    super(
+      "Shopify denied access to the products field. The app needs the read_products scope; redeploy the Shopify app configuration and reauthorize the store.",
+    );
+    this.name = "ShopifyProductAccessDeniedError";
+    if (cause) this.cause = cause;
+  }
+}
+
+function isProductsAccessDeniedError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return /access denied for products field/i.test(message);
+}
+
 export interface ProductSyncResult {
-  total:   number;
+  total: number;
   created: number;
   updated: number;
-  errors:  number;
+  errors: number;
   skipped: number;
 }
+
+type AdminGraphqlResponse = {
+  json: () => Promise<ShopifyProductsResponse>;
+};
+
+type ShopifyProductsResponse = {
+  data?: {
+    products?: {
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      edges: Array<{ node: ShopifyProductNode }>;
+    };
+  };
+  errors?: Array<{ message?: string } | string>;
+};
+
+type ShopifyProductNode = {
+  title: string;
+  descriptionHtml?: string | null;
+  variants: {
+    edges: Array<{ node: ShopifyVariantNode }>;
+  };
+};
+
+type ShopifyVariantNode = {
+  id: string;
+  sku?: string | null;
+  price?: string | null;
+  title: string;
+};
 
 /**
  * Fetches all products from Shopify and upserts each one to Holded.
@@ -47,13 +92,22 @@ export interface ProductSyncResult {
  *   - Each result is written to SyncLog.
  */
 export async function syncProductsToHolded(
-  adminGraphql: (query: string, options?: any) => Promise<any>,
-  shopId:        number,
-  apikey:        string,
+  adminGraphql: (
+    query: string,
+    options?: { variables: { first: number; after: string | null } },
+  ) => Promise<AdminGraphqlResponse>,
+  shopId: number,
+  apikey: string,
   integrationId: number,
 ): Promise<ProductSyncResult> {
   const holded = new HoldedService(apikey);
-  const result: ProductSyncResult = { total: 0, created: 0, updated: 0, errors: 0, skipped: 0 };
+  const result: ProductSyncResult = {
+    total: 0,
+    created: 0,
+    updated: 0,
+    errors: 0,
+    skipped: 0,
+  };
 
   // ── Fetch all Holded products once to build a SKU → id map ───────────────
   const holdedSkuMap = new Map<string, string>(); // sku → holdedProductId
@@ -62,7 +116,7 @@ export async function syncProductsToHolded(
     do {
       const page = await holded.listProducts(100, cursor);
       for (const p of page.items ?? []) {
-        if (p.sku) holdedSkuMap.set(p.sku.toLowerCase(), p.id!);
+        if (p.sku && !p.archived) holdedSkuMap.set(p.sku.toLowerCase(), p.id!);
       }
       cursor = page.has_more ? page.cursor : undefined;
     } while (cursor);
@@ -75,20 +129,43 @@ export async function syncProductsToHolded(
   let afterCursor: string | null = null;
 
   while (hasNextPage) {
-    const response = await adminGraphql(PRODUCTS_QUERY, {
-      variables: { first: 50, after: afterCursor },
-    });
-    const json = await response.json();
+    let json: ShopifyProductsResponse;
+
+    try {
+      const response = await adminGraphql(PRODUCTS_QUERY, {
+        variables: { first: 50, after: afterCursor },
+      });
+      json = await response.json();
+    } catch (error) {
+      if (isProductsAccessDeniedError(error)) {
+        throw new ShopifyProductAccessDeniedError(error);
+      }
+
+      throw error;
+    }
+
     const productsData = json?.data?.products;
 
-    if (!productsData) break;
+    if (!productsData) {
+      const productsAccessDenied = json?.errors?.some((error) =>
+        isProductsAccessDeniedError(
+          typeof error === "string" ? error : error.message,
+        ),
+      );
+
+      if (productsAccessDenied) {
+        throw new ShopifyProductAccessDeniedError(json.errors);
+      }
+
+      break;
+    }
 
     hasNextPage = productsData.pageInfo.hasNextPage;
     afterCursor = productsData.pageInfo.endCursor;
 
     for (const edge of productsData.edges) {
-      const product  = edge.node;
-      const variants = product.variants.edges.map((e: any) => e.node);
+      const product = edge.node;
+      const variants = product.variants.edges.map((e) => e.node);
 
       for (const variant of variants) {
         result.total++;
@@ -100,24 +177,25 @@ export async function syncProductsToHolded(
           result.skipped++;
           await createSyncLog({
             shopId,
-            syncType:  "PRODUCT",
-            shopifyId:  variant.id,
-            status:    "ERROR",
+            syncType: "PRODUCT",
+            shopifyId: variant.id,
+            status: "ERROR",
             errorMessage: "No SKU — skipped",
             integrationId,
-            erpName:   "holded",
+            erpName: "holded",
           });
           continue;
         }
 
-        const productName = variants.length > 1
-          ? `${product.title} - ${variant.title}`
-          : product.title;
+        const productName =
+          variants.length > 1
+            ? `${product.title} - ${variant.title}`
+            : product.title;
 
         const holdedPayload = {
-          name:        productName,
+          name: productName,
           sku,
-          price:       parseFloat(variant.price ?? "0"),
+          price: parseFloat(variant.price ?? "0"),
           description: product.descriptionHtml
             ? product.descriptionHtml.replace(/<[^>]+>/g, "").trim()
             : undefined,
@@ -132,16 +210,16 @@ export async function syncProductsToHolded(
             result.updated++;
             await createSyncLog({
               shopId,
-              syncType:    "PRODUCT",
-              shopifyId:   variant.id,
-              externalId:  0,
-              status:      "SUCCESS",
-              method:      "PUT",
-              url:         `https://api.holded.com/api/v2/products/${existingId}`,
-              requestData:  holdedPayload,
+              syncType: "PRODUCT",
+              shopifyId: variant.id,
+              externalId: 0,
+              status: "SUCCESS",
+              method: "PUT",
+              url: `https://api.holded.com/api/v2/products/${existingId}`,
+              requestData: holdedPayload,
               responseData: { id: existingId },
               integrationId,
-              erpName:     "holded",
+              erpName: "holded",
             });
           } else {
             // Create
@@ -150,29 +228,29 @@ export async function syncProductsToHolded(
             result.created++;
             await createSyncLog({
               shopId,
-              syncType:    "PRODUCT",
-              shopifyId:   variant.id,
-              externalId:  0,
-              status:      "SUCCESS",
-              method:      "POST",
-              url:         "https://api.holded.com/api/v2/products",
-              requestData:  holdedPayload,
+              syncType: "PRODUCT",
+              shopifyId: variant.id,
+              externalId: 0,
+              status: "SUCCESS",
+              method: "POST",
+              url: "https://api.holded.com/api/v2/products",
+              requestData: holdedPayload,
               responseData: created,
               integrationId,
-              erpName:     "holded",
+              erpName: "holded",
             });
           }
         } catch (err) {
           result.errors++;
           await createSyncLog({
             shopId,
-            syncType:    "PRODUCT",
-            shopifyId:   variant.id,
-            status:      "ERROR",
+            syncType: "PRODUCT",
+            shopifyId: variant.id,
+            status: "ERROR",
             errorMessage: err instanceof Error ? err.message : String(err),
-            requestData:  holdedPayload,
+            requestData: holdedPayload,
             integrationId,
-            erpName:     "holded",
+            erpName: "holded",
           });
         }
       }
