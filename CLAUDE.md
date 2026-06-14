@@ -81,3 +81,53 @@ TEST_SHOP_DOMAIN        Shop used in tests
 3. `dispatcher.server.ts` — register controller factory
 4. `prisma/seed.js` — add `Integration` DB row
 5. `npm run setup` — apply schema changes if any
+
+## Structural Inspiration: woocommerce-es
+
+This project is the Shopify equivalent of [closemarketing/woocommerce-es](https://github.com/closemarketing/woocommerce-es), which connects WooCommerce to ERPs/CRMs via a connector add-on pattern.
+
+### How woocommerce-es organizes connectors
+
+```
+includes/
+  Plugin_Main.php          ← Base class wires all subsystems; receives a $connector instance
+  Connector/
+    class-api-{name}.php   ← One class per ERP (Holded, Clientify, etc.), injected at runtime
+  Admin/
+    Settings.php           ← Connector-aware settings page
+    Import_Products.php    ← Bulk import, driven by connector
+    Orders.php             ← Order sync UI
+    Widget_Order.php       ← Per-order ERP widget
+    Widget_Product.php     ← Per-product ERP widget
+    Taxes_Rates.php
+    Taxes_Types_ERP.php
+  Frontend/
+    Checkout.php           ← VAT/NIF checkout fields
+    MyAccount.php          ← Account area extensions
+  Helpers/
+    HELPER.php             ← Static utilities (error emails, connector resolution)
+    ORDER.php, PROD.php, TAX.php, PAYMENTS.php, VAT.php, CRON.php, AI.php, ALERT.php
+  CLI/
+    Import_Products_Command.php
+```
+
+The main plugin file (`woocommerce-es.php`) defines a `conecom_get_options()` function that returns a connector map keyed by slug. Each connector entry declares its capabilities as flags (`product_price_tax_option`, `order_sync_partial`, etc.) and its settings fields — no code changes needed in core when adding a connector add-on.
+
+### Mapping to this Shopify app
+
+| woocommerce-es concept | Shopify app equivalent |
+|---|---|
+| `Connector/class-api-{name}.php` | `app/services/erp/<name>/` |
+| `Plugin_Main.php` `Base` class | `dispatcher.server.ts` |
+| `conecom_get_options()` connector map | `registry.server.ts` `IntegrationDefinition` |
+| `Helpers/ORDER.php` | ERP-agnostic order helpers in `app/services/` |
+| `Admin/Settings.php` (connector-aware) | `app/routes/front/settings.*` |
+| `Admin/Import_Products.php` | product sync job / bulk import route |
+| `woocommerce_es.php` capability flags | `IntegrationDefinition` feature flags |
+
+### Design principles to carry forward
+
+- **Connector as a pure dependency** — core subsystems (orders, products, settings) receive the connector instance; they never hard-code an ERP name.
+- **Capability flags over conditionals** — declare what a connector supports in its definition; subsystems check flags rather than `if connector === 'holded'`.
+- **One connector class per ERP** — each class owns its own API calls, field mapping, and error handling; shared logic lives in Helpers.
+- **Add-on pattern** — each ERP connector is a self-contained add-on (separate repo/package in WooCommerce world; separate `app/services/erp/<name>/` module here) that registers itself into the core registry.
