@@ -41,6 +41,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const lastSyncAt     = (credentials as any).last_sync_at || null;
   const intervalHours  = parseInt((credentials as any).sync_interval_hours || "24", 10);
+  const holdedDocType  = (credentials as any).holded_doc_type  || "smart";
+  const holdedSerial   = (credentials as any).holded_serial    || "";
+  const holdedAutoApprove = (credentials as any).holded_auto_approve === "true";
   const nextSyncAt     = lastSyncAt
     ? new Date(new Date(lastSyncAt).getTime() + intervalHours * 3_600_000).toISOString()
     : null;
@@ -58,7 +61,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         data: { shopId: shop.id, status: "PENDING" },
       });
       const { runHoldedSync } = await import(
-        "~/services/holded/sync-products-from-holded.server"
+        "~/services/erp/holded/sync-products-from-holded.server"
       );
       runHoldedSync({
         jobId:        newJob.id,
@@ -74,11 +77,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     credentials,
     latestJob,
     recentJobs,
-    shop:         session.shop,
-    isConfigured: !!(credentials as any).apikey,
+    shop:            session.shop,
+    isConfigured:    !!(credentials as any).apikey,
     nextSyncAt,
     lastSyncAt,
     intervalHours,
+    holdedDocType,
+    holdedSerial,
+    holdedAutoApprove,
   };
 };
 
@@ -92,12 +98,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (intent === "save_credentials") {
     const apikey          = String(formData.get("apikey") ?? "").trim();
     const syncIntervalHrs = String(formData.get("sync_interval_hours") ?? "24").trim();
+    const holdedDocType   = String(formData.get("holded_doc_type") ?? "smart").trim();
+    const holdedSerial    = String(formData.get("holded_serial") ?? "").trim();
+    const holdedAutoApprove = formData.get("holded_auto_approve") === "true" ? "true" : "false";
 
     if (!apikey) {
       return { success: false, error: "La API Key es requerida." };
     }
 
-    // Validate before saving
     const holded = new HoldedService(apikey);
     const test   = await holded.validateKey();
     if (!test.ok) {
@@ -115,6 +123,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     await saveCredentials(session.shop, integration.id, {
       apikey,
       sync_interval_hours: syncIntervalHrs,
+      holded_doc_type:     holdedDocType,
+      holded_serial:       holdedSerial,
+      holded_auto_approve: holdedAutoApprove,
     });
 
     return { success: true, message: "Credenciales guardadas correctamente." };
@@ -153,7 +164,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
 
     const { runHoldedSync } = await import(
-      "~/services/holded/sync-products-from-holded.server"
+      "~/services/erp/holded/sync-products-from-holded.server"
     );
     runHoldedSync({
       jobId:        newJob.id,
@@ -223,6 +234,9 @@ export default function HoldedPage() {
     nextSyncAt,
     lastSyncAt,
     intervalHours,
+    holdedDocType:     initDocType,
+    holdedSerial:      initSerial,
+    holdedAutoApprove: initAutoApprove,
   } = useLoaderData<typeof loader>();
 
   const actionData  = useActionData<typeof action>();
@@ -232,10 +246,13 @@ export default function HoldedPage() {
 
   const creds = credentials as Record<string, string>;
 
-  const [apiKey, setApiKey]                     = useState(creds.apikey ?? "");
+  const [apiKey, setApiKey]                       = useState(creds.apikey ?? "");
   const [syncIntervalHours, setSyncIntervalHours] = useState(String(intervalHours));
-  const [isEditingKey, setIsEditingKey]          = useState(!isConfigured);
-  const [showSaveBar, setShowSaveBar]            = useState(false);
+  const [isEditingKey, setIsEditingKey]           = useState(!isConfigured);
+  const [showSaveBar, setShowSaveBar]             = useState(false);
+  const [docType, setDocType]                     = useState(initDocType ?? "smart");
+  const [serialNum, setSerialNum]                 = useState(initSerial ?? "");
+  const [autoApprove, setAutoApprove]             = useState(initAutoApprove ?? false);
 
   const isRunning =
     latestJob?.status === "RUNNING" || latestJob?.status === "PENDING";
@@ -274,6 +291,9 @@ export default function HoldedPage() {
     form.append("intent", "save_credentials");
     form.append("apikey", apiKey);
     form.append("sync_interval_hours", syncIntervalHours);
+    form.append("holded_doc_type", docType);
+    form.append("holded_serial", serialNum);
+    form.append("holded_auto_approve", autoApprove ? "true" : "false");
     submit(form, { method: "post" });
     setShowSaveBar(false);
   };
@@ -281,6 +301,9 @@ export default function HoldedPage() {
   const handleDiscard = () => {
     setApiKey(creds.apikey ?? "");
     setSyncIntervalHours(String(intervalHours));
+    setDocType(initDocType ?? "smart");
+    setSerialNum(initSerial ?? "");
+    setAutoApprove(initAutoApprove ?? false);
     setIsEditingKey(!isConfigured);
     setShowSaveBar(false);
   };
@@ -302,274 +325,307 @@ export default function HoldedPage() {
 
       <ui-title-bar title="Sincronización Holded"></ui-title-bar>
 
-      <s-block-stack gap="400">
+      <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "24px", display: "flex", flexDirection: "column", gap: "20px" }}>
 
         {/* ── Config + Sync status side by side ── */}
-        <s-layout>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", alignItems: "start" }}>
 
           {/* Config card */}
-          <s-layout-section>
-            <s-card>
-              <s-block-stack gap="300">
-                <s-text variant="headingMd" as="h2">Configuración</s-text>
-                <s-divider></s-divider>
+          <div style={cardStyle}>
+            <h2 style={sectionHeading}>Configuración</h2>
+            <hr style={dividerStyle} />
 
-                {/* API key */}
-                {isConfigured && !isEditingKey ? (
-                  <s-block-stack gap="200">
-                    <s-text variant="bodySm" as="p" tone="subdued">API Key</s-text>
-                    <s-inline-stack gap="200" blockAlign="center">
-                      <s-text variant="bodyMd" as="p">••••••••••••••••</s-text>
-                      <s-button size="slim" onClick={() => setIsEditingKey(true)}>
-                        Editar API Key
-                      </s-button>
-                    </s-inline-stack>
-                  </s-block-stack>
-                ) : (
-                  <s-block-stack gap="200">
-                    <s-text-field
-                      label="API Key de Holded"
-                      value={apiKey}
-                      type="password"
-                      helpText="Genera tu API Key en Holded &gt; Configuración &gt; Desarrolladores."
-                      onInput={(e: any) => {
-                        setApiKey(e.target.value);
-                        setShowSaveBar(true);
-                      }}
-                    ></s-text-field>
-                    {isConfigured && (
-                      <s-button
-                        size="slim"
-                        onClick={() => {
-                          setIsEditingKey(false);
-                          setApiKey(creds.apikey ?? "");
-                          setShowSaveBar(false);
-                        }}
-                      >
-                        Cancelar
-                      </s-button>
-                    )}
-                  </s-block-stack>
-                )}
-
-                {/* Sync interval */}
-                <s-block-stack gap="100">
-                  <s-text variant="bodySm" as="label">
-                    Intervalo de sincronización automática
-                  </s-text>
-                  <select
-                    value={syncIntervalHours}
-                    onChange={(e) => {
-                      setSyncIntervalHours(e.target.value);
-                      setShowSaveBar(true);
-                    }}
-                    style={{
-                      padding:      "8px 12px",
-                      fontSize:     "14px",
-                      borderRadius: "6px",
-                      border:       "1px solid #d1d5db",
-                      background:   "white",
-                      cursor:       "pointer",
-                      width:        "100%",
-                    }}
-                  >
-                    <option value="1">Cada 1 hora</option>
-                    <option value="6">Cada 6 horas</option>
-                    <option value="12">Cada 12 horas</option>
-                    <option value="24">Cada 24 horas</option>
-                    <option value="48">Cada 48 horas</option>
-                  </select>
-                </s-block-stack>
-
-                {/* Save button (also available via save bar) */}
-                <s-button variant="primary" onClick={handleSaveCredentials}>
-                  Guardar configuración
-                </s-button>
-              </s-block-stack>
-            </s-card>
-          </s-layout-section>
-
-          {/* Sync status card */}
-          <s-layout-section>
-            <s-card>
-              <s-block-stack gap="300">
-                <s-text variant="headingMd" as="h2">Estado de Sincronización</s-text>
-                <s-divider></s-divider>
-
-                <s-block-stack gap="200">
-                  <s-inline-stack gap="200" blockAlign="center">
-                    <s-text variant="bodySm" as="span" tone="subdued">Última sincronización:</s-text>
-                    <s-text variant="bodySm" as="span">{formatDate(lastSyncAt)}</s-text>
-                  </s-inline-stack>
-                  <s-inline-stack gap="200" blockAlign="center">
-                    <s-text variant="bodySm" as="span" tone="subdued">Próxima sincronización:</s-text>
-                    <s-text variant="bodySm" as="span">{formatDate(nextSyncAt)}</s-text>
-                  </s-inline-stack>
-                </s-block-stack>
-
-                {latestJob?.status === "COMPLETED" && (
-                  <s-block-stack gap="100">
-                    <s-text variant="bodySm" as="p" tone="subdued">Últimos resultados:</s-text>
-                    <s-inline-stack gap="300">
-                      <s-badge tone="success">{lastResults.updated} actualizados</s-badge>
-                      <s-badge tone="info">{lastResults.created} creados</s-badge>
-                      {lastResults.errors > 0 && (
-                        <s-badge tone="critical">{lastResults.errors} errores</s-badge>
-                      )}
-                    </s-inline-stack>
-                  </s-block-stack>
-                )}
-
-                {isRunning && (
-                  <s-block-stack gap="100">
-                    <s-inline-stack gap="200" blockAlign="center">
-                      <s-text variant="bodySm" as="span" tone="subdued">Progreso:</s-text>
-                      <s-text variant="bodySm" as="span">
-                        {latestJob?.syncedProducts ?? 0} / {latestJob?.totalProducts ?? "…"}
-                      </s-text>
-                    </s-inline-stack>
-                    <div
-                      style={{
-                        height:       "8px",
-                        background:   "#e5e7eb",
-                        borderRadius: "4px",
-                        overflow:     "hidden",
-                      }}
-                    >
-                      <div
-                        style={{
-                          height:       "8px",
-                          width:        `${progress}%`,
-                          background:   "#008060",
-                          borderRadius: "4px",
-                          transition:   "width 0.5s ease",
-                        }}
-                      />
-                    </div>
-                    <s-text variant="bodySm" as="p" tone="subdued">
-                      Sincronizando… {progress}%
-                    </s-text>
-                  </s-block-stack>
-                )}
-
-                <s-button
-                  variant="primary"
-                  onClick={handleSyncNow}
-                  disabled={isRunning || !isConfigured}
-                >
-                  {isRunning ? "Sincronizando…" : "Sincronizar Ahora"}
-                </s-button>
-              </s-block-stack>
-            </s-card>
-          </s-layout-section>
-
-        </s-layout>
-
-        {/* ── Recent jobs table ── */}
-        <s-card>
-          <s-block-stack gap="300">
-            <s-text variant="headingMd" as="h2">Historial de Sincronizaciones</s-text>
-            <s-divider></s-divider>
-
-            {recentJobs.length === 0 ? (
-              <s-text variant="bodySm" as="p" tone="subdued">
-                No hay sincronizaciones registradas todavía.
-              </s-text>
+            {/* API key */}
+            {isConfigured && !isEditingKey ? (
+              <div style={{ marginBottom: "16px" }}>
+                <div style={fieldLabel}>API Key</div>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px" }}>
+                  <span style={{ fontSize: "14px", letterSpacing: "2px" }}>••••••••••••••••</span>
+                  <button onClick={() => setIsEditingKey(true)} style={slimBtn}>Editar API Key</button>
+                </div>
+              </div>
             ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table
-                  style={{
-                    width:           "100%",
-                    borderCollapse:  "collapse",
-                    fontSize:        "13px",
-                  }}
-                >
-                  <thead>
-                    <tr style={{ borderBottom: "1px solid #e0e0e0", background: "#f9f9f9" }}>
-                      <th style={thStyle}>Fecha</th>
-                      <th style={thStyle}>Estado</th>
-                      <th style={thStyle}>Total</th>
-                      <th style={thStyle}>Actualizados</th>
-                      <th style={thStyle}>Creados</th>
-                      <th style={thStyle}>Errores</th>
-                      <th style={thStyle}>Duración</th>
-                      <th style={thStyle}>Resumen</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(recentJobs as any[]).map((job) => {
-                      const r = getLastResults(job.log);
-                      const badge = STATUS_BADGE[job.status] ?? STATUS_BADGE.PENDING;
-                      return (
-                        <tr
-                          key={job.id}
-                          style={{ borderBottom: "1px solid #f0f0f0" }}
-                        >
-                          <td style={tdStyle}>{formatDate(job.createdAt)}</td>
-                          <td style={tdStyle}>
-                            <span
-                              style={{
-                                display:      "inline-block",
-                                padding:      "2px 8px",
-                                borderRadius: "12px",
-                                fontSize:     "11px",
-                                fontWeight:   500,
-                                background:   badge.bg,
-                                color:        badge.color,
-                              }}
-                            >
-                              {badge.label}
-                            </span>
-                          </td>
-                          <td style={tdStyle}>{job.totalProducts ?? "—"}</td>
-                          <td style={tdStyle}>{r.updated}</td>
-                          <td style={tdStyle}>{r.created}</td>
-                          <td style={{ ...tdStyle, color: r.errors > 0 ? "#c0392b" : "inherit" }}>
-                            {r.errors}
-                          </td>
-                          <td style={tdStyle}>
-                            {formatDuration(job.startedAt, job.completedAt)}
-                          </td>
-                          <td style={{ ...tdStyle, maxWidth: "260px" }}>
-                            {job.summary ? (
-                              <details>
-                                <summary style={{ cursor: "pointer", fontSize: "11px", color: r.errors > 0 ? "#c0392b" : "#555" }}>
-                                  {r.errors > 0 ? `Ver ${r.errors} errores` : "Ver detalle"}
-                                </summary>
-                                <pre style={{
-                                  marginTop:   "6px",
-                                  fontSize:    "10px",
-                                  color:       "#444",
-                                  whiteSpace:  "pre-wrap",
-                                  background:  "#f8f8f8",
-                                  padding:     "6px",
-                                  borderRadius:"4px",
-                                  maxHeight:   "200px",
-                                  overflowY:   "auto",
-                                }}>
-                                  {job.summary}
-                                </pre>
-                              </details>
-                            ) : "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div style={{ marginBottom: "16px" }}>
+                <label style={fieldLabel}>API Key de Holded</label>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => { setApiKey(e.target.value); setShowSaveBar(true); }}
+                  style={{ ...inputStyle, marginTop: "4px" }}
+                />
+                <div style={helpText}>Genera tu API Key en Holded &gt; Configuración &gt; Desarrolladores.</div>
+                {isConfigured && (
+                  <button onClick={() => { setIsEditingKey(false); setApiKey(creds.apikey ?? ""); setShowSaveBar(false); }} style={{ ...slimBtn, marginTop: "6px" }}>
+                    Cancelar
+                  </button>
+                )}
               </div>
             )}
-          </s-block-stack>
-        </s-card>
 
-      </s-block-stack>
+            {/* Sync interval */}
+            <div style={{ marginBottom: "16px" }}>
+              <label style={fieldLabel}>Intervalo de sincronización automática</label>
+              <select
+                value={syncIntervalHours}
+                onChange={(e) => { setSyncIntervalHours(e.target.value); setShowSaveBar(true); }}
+                style={{ ...inputStyle, marginTop: "4px" }}
+              >
+                <option value="1">Cada 1 hora</option>
+                <option value="6">Cada 6 horas</option>
+                <option value="12">Cada 12 horas</option>
+                <option value="24">Cada 24 horas</option>
+                <option value="48">Cada 48 horas</option>
+              </select>
+            </div>
+
+            <hr style={dividerStyle} />
+            <h2 style={sectionHeading}>Configuración de Pedidos</h2>
+
+            {/* Document type */}
+            <div style={{ marginBottom: "16px" }}>
+              <label style={fieldLabel}>Tipo de documento</label>
+              <select
+                value={docType}
+                onChange={(e) => { setDocType(e.target.value); setShowSaveBar(true); }}
+                style={{ ...inputStyle, marginTop: "4px" }}
+              >
+                <option value="smart">Smart (automático)</option>
+                <option value="invoice">Factura (Invoice)</option>
+                <option value="salesreceipt">Ticket (Sales Receipt)</option>
+                <option value="salesorder">Pedido (Sales Order)</option>
+                <option value="waybill">Albarán (Waybill)</option>
+              </select>
+              {docType === "smart" && (
+                <div style={helpText}>Sin NIF/CIF → Ticket · Con NIF/CIF → Factura</div>
+              )}
+            </div>
+
+            {/* Serial number */}
+            <div style={{ marginBottom: "16px" }}>
+              <label style={fieldLabel}>Número de serie</label>
+              <input
+                type="text"
+                value={serialNum}
+                placeholder="Ej: FAC, REC..."
+                onChange={(e) => { setSerialNum(e.target.value); setShowSaveBar(true); }}
+                style={{ ...inputStyle, marginTop: "4px" }}
+              />
+              <div style={helpText}>Opcional. Prefijo del número de serie del documento en Holded.</div>
+            </div>
+
+            {/* Auto-approve */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer", fontSize: "14px", color: "#374151" }}>
+                <input
+                  type="checkbox"
+                  checked={autoApprove}
+                  onChange={(e) => { setAutoApprove(e.target.checked); setShowSaveBar(true); }}
+                  style={{ width: "16px", height: "16px", cursor: "pointer" }}
+                />
+                Validar documento automáticamente
+              </label>
+              <div style={helpText}>Si está activado, el documento se validará en Holded tras la creación.</div>
+            </div>
+
+            <button onClick={handleSaveCredentials} style={primaryBtn}>
+              Guardar configuración
+            </button>
+          </div>
+
+          {/* Sync status card */}
+          <div style={cardStyle}>
+            <h2 style={sectionHeading}>Estado de Sincronización</h2>
+            <hr style={dividerStyle} />
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+              <div style={{ display: "flex", gap: "8px", fontSize: "13px" }}>
+                <span style={{ color: "#6b7280", minWidth: "160px" }}>Última sincronización:</span>
+                <span>{formatDate(lastSyncAt)}</span>
+              </div>
+              <div style={{ display: "flex", gap: "8px", fontSize: "13px" }}>
+                <span style={{ color: "#6b7280", minWidth: "160px" }}>Próxima sincronización:</span>
+                <span>{formatDate(nextSyncAt)}</span>
+              </div>
+            </div>
+
+            {latestJob?.status === "COMPLETED" && (
+              <div style={{ marginBottom: "16px" }}>
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>Últimos resultados:</div>
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                  <span style={{ ...badge, background: "#e8faf0", color: "#2a7a2a" }}>{lastResults.updated} actualizados</span>
+                  <span style={{ ...badge, background: "#e8f0ff", color: "#0050b3" }}>{lastResults.created} creados</span>
+                  {lastResults.errors > 0 && (
+                    <span style={{ ...badge, background: "#fff0f0", color: "#c0392b" }}>{lastResults.errors} errores</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {isRunning && (
+              <div style={{ marginBottom: "16px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "#6b7280", marginBottom: "4px" }}>
+                  <span>Progreso</span>
+                  <span>{latestJob?.syncedProducts ?? 0} / {latestJob?.totalProducts ?? "…"}</span>
+                </div>
+                <div style={{ height: "8px", background: "#e5e7eb", borderRadius: "4px", overflow: "hidden" }}>
+                  <div style={{ height: "8px", width: `${progress}%`, background: "#008060", borderRadius: "4px", transition: "width 0.5s ease" }} />
+                </div>
+                <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>Sincronizando… {progress}%</div>
+              </div>
+            )}
+
+            <button
+              onClick={handleSyncNow}
+              disabled={isRunning || !isConfigured}
+              style={{ ...primaryBtn, opacity: (isRunning || !isConfigured) ? 0.5 : 1, cursor: (isRunning || !isConfigured) ? "not-allowed" : "pointer" }}
+            >
+              {isRunning ? "Sincronizando…" : "Sincronizar Ahora"}
+            </button>
+          </div>
+
+        </div>
+
+        {/* ── Recent jobs table ── */}
+        <div style={cardStyle}>
+          <h2 style={sectionHeading}>Historial de Sincronizaciones</h2>
+          <hr style={dividerStyle} />
+
+          {recentJobs.length === 0 ? (
+            <p style={{ fontSize: "13px", color: "#6b7280" }}>No hay sincronizaciones registradas todavía.</p>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid #e0e0e0", background: "#f9f9f9" }}>
+                    <th style={thStyle}>Fecha</th>
+                    <th style={thStyle}>Estado</th>
+                    <th style={thStyle}>Total</th>
+                    <th style={thStyle}>Actualizados</th>
+                    <th style={thStyle}>Creados</th>
+                    <th style={thStyle}>Errores</th>
+                    <th style={thStyle}>Duración</th>
+                    <th style={thStyle}>Resumen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(recentJobs as any[]).map((job) => {
+                    const r = getLastResults(job.log);
+                    const b = STATUS_BADGE[job.status] ?? STATUS_BADGE.PENDING;
+                    return (
+                      <tr key={job.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                        <td style={tdStyle}>{formatDate(job.createdAt)}</td>
+                        <td style={tdStyle}>
+                          <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: 500, background: b.bg, color: b.color }}>
+                            {b.label}
+                          </span>
+                        </td>
+                        <td style={tdStyle}>{job.totalProducts ?? "—"}</td>
+                        <td style={tdStyle}>{r.updated}</td>
+                        <td style={tdStyle}>{r.created}</td>
+                        <td style={{ ...tdStyle, color: r.errors > 0 ? "#c0392b" : "inherit" }}>{r.errors}</td>
+                        <td style={tdStyle}>{formatDuration(job.startedAt, job.completedAt)}</td>
+                        <td style={{ ...tdStyle, maxWidth: "260px" }}>
+                          {job.summary ? (
+                            <details>
+                              <summary style={{ cursor: "pointer", fontSize: "11px", color: r.errors > 0 ? "#c0392b" : "#555" }}>
+                                {r.errors > 0 ? `Ver ${r.errors} errores` : "Ver detalle"}
+                              </summary>
+                              <pre style={{ marginTop: "6px", fontSize: "10px", color: "#444", whiteSpace: "pre-wrap", background: "#f8f8f8", padding: "6px", borderRadius: "4px", maxHeight: "200px", overflowY: "auto" }}>
+                                {job.summary}
+                              </pre>
+                            </details>
+                          ) : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+      </div>
     </>
   );
 }
 
+const cardStyle: React.CSSProperties = {
+  background:   "white",
+  borderRadius: "8px",
+  border:       "1px solid #e5e7eb",
+  padding:      "20px 24px",
+};
+
+const sectionHeading: React.CSSProperties = {
+  margin:     0,
+  fontSize:   "16px",
+  fontWeight: 600,
+  color:      "#111827",
+};
+
+const dividerStyle: React.CSSProperties = {
+  border:     "none",
+  borderTop:  "1px solid #f0f0f0",
+  margin:     "14px 0",
+};
+
+const fieldLabel: React.CSSProperties = {
+  display:    "block",
+  fontSize:   "13px",
+  fontWeight: 500,
+  color:      "#374151",
+};
+
+const helpText: React.CSSProperties = {
+  fontSize:  "12px",
+  color:     "#6b7280",
+  marginTop: "4px",
+};
+
+const inputStyle: React.CSSProperties = {
+  display:      "block",
+  width:        "100%",
+  padding:      "8px 12px",
+  fontSize:     "14px",
+  borderRadius: "6px",
+  border:       "1px solid #d1d5db",
+  background:   "white",
+  boxSizing:    "border-box",
+};
+
+const primaryBtn: React.CSSProperties = {
+  padding:      "8px 16px",
+  fontSize:     "14px",
+  fontWeight:   600,
+  borderRadius: "6px",
+  border:       "none",
+  background:   "#008060",
+  color:        "white",
+  cursor:       "pointer",
+};
+
+const slimBtn: React.CSSProperties = {
+  padding:      "4px 10px",
+  fontSize:     "13px",
+  borderRadius: "5px",
+  border:       "1px solid #d1d5db",
+  background:   "white",
+  cursor:       "pointer",
+  color:        "#374151",
+};
+
+const badge: React.CSSProperties = {
+  display:      "inline-block",
+  padding:      "2px 10px",
+  borderRadius: "12px",
+  fontSize:     "12px",
+  fontWeight:   500,
+};
+
 const thStyle: React.CSSProperties = {
-  padding:   "6px 10px",
-  textAlign: "left",
+  padding:    "6px 10px",
+  textAlign:  "left",
   fontWeight: 600,
 };
 

@@ -1,6 +1,6 @@
-import prisma from "../../db.server";
-import logger from "../../utils/logger.server";
-import { HoldedService, parseHoldedPrice } from "../erp/holded/holded.service";
+import prisma from "~/db.server";
+import logger from "~/utils/logger.server";
+import { HoldedService, parseHoldedPrice } from "./holded.service";
 
 const SHOPIFY_API_VERSION = "2025-10";
 
