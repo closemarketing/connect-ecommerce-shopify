@@ -3,15 +3,15 @@ import { useLoaderData, useActionData, useSubmit, useRevalidator } from "react-r
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 
-import { authenticate } from "../shopify.server";
-import prisma from "../db.server";
+import { authenticate } from "~/shopify.server";
+import prisma from "~/db.server";
 import {
   getIntegrationByName,
   getCredentials,
   saveCredentials,
-} from "../models/Integration.server";
-import { HoldedService } from "../services/erp/holded/holded.service";
-import logger from "../utils/logger.server";
+} from "~/models/Integration.server";
+import { HoldedService } from "~/services/erp/holded/holded.service";
+import logger from "~/utils/logger.server";
 
 // ── Loader ────────────────────────────────────────────────────────────────────
 
