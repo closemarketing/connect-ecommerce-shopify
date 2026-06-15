@@ -21,10 +21,24 @@ export interface HoldedProduct {
 	id?: string;
 	name: string;
 	sku?: string;
-	price?: number;
+	price?: number | string; // API returns string with comma decimal: "390,00"
 	tax?: string;
+	taxes?: string[];
 	description?: string;
+	archived?: boolean;
+	has_stock?: boolean;
+	for_sale?: boolean;
+	for_purchase?: boolean;
+	stock?: string;
+	kind?: string;
 	[key: string]: any;
+}
+
+/** Parse a Holded price string ("390,00") to a number (390.00). */
+export function parseHoldedPrice(price: number | string | undefined): number {
+	if (price === undefined || price === null) return 0;
+	if (typeof price === "number") return price;
+	return parseFloat(price.replace(",", ".")) || 0;
 }
 
 export interface HoldedInvoiceItem {

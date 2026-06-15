@@ -32,6 +32,7 @@ export default function App() {
           </s-link>
         ))}
 
+
         <s-link href="/app/sync-logs">Sync Logs</s-link>
         <s-link href="/app/webhook-logs">Webhook Logs</s-link>
         <s-link href="/app/additional">Additional page</s-link>

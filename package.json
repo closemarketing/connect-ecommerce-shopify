@@ -21,7 +21,8 @@
     "typecheck": "react-router typegen && tsc --noEmit",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "test:ci": "vitest run tests/holded tests/webhooks/customer.extract.test.ts"
   },
   "type": "module",
   "engines": {

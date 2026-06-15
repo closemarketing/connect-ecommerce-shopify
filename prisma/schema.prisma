@@ -26,6 +26,7 @@ model Shop {
   webhookLogs       WebhookLog[]
   erpWebhookConfigs ERPWebhookConfig[]
   shopIntegrations  ShopIntegration[]
+  holdedSyncJobs    HoldedSyncJob[]
 }
 
 model Session {
@@ -152,6 +153,7 @@ enum SyncType {
   ORDER
   PIPELINE
   STAGE
+  HOLDED_PRODUCT
 }
 
 enum SyncStatus {
@@ -217,6 +219,34 @@ model OrderStageMapping {
 
   @@unique([pipelineConfigId, shopifyOrderStatus])
   @@index([pipelineConfigId])
+}
+
+enum HoldedSyncStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model HoldedSyncJob {
+  id             Int              @id @default(autoincrement())
+  shopId         Int
+  status         HoldedSyncStatus @default(PENDING)
+  totalProducts  Int?
+  syncedProducts Int              @default(0)
+  errorCount     Int              @default(0)
+  log            String?          @db.LongText
+  summary        String?          @db.Text
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 // Admin panel user (internal use only — not Shopify merchants)
