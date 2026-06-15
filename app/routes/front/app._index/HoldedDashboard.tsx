@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { useFetcher } from "react-router";
+import { useEffect, useRef } from "react";
+import { useFetcher, useRevalidator } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { HoldedDashboardData } from "./holded-dashboard-data.server";
 
@@ -23,32 +23,40 @@ const STATUS_BADGE: Record<string, { bg: string; color: string; label: string }>
 };
 
 interface Props {
-  data: HoldedDashboardData;
+  data:       HoldedDashboardData;
+  activeJob?: { id: number; status: string; syncedProducts: number; totalProducts: number | null } | null;
 }
 
-export function HoldedDashboard({ data }: Props) {
+export function HoldedDashboard({ data, activeJob }: Props) {
   const { products, orders, recentOrders } = data;
   const { t } = useTranslation();
-  const syncFetcher = useFetcher<{
-    ok: boolean;
-    result?: { total: number; created: number; updated: number; errors: number; skipped: number };
-  }>();
+  const syncFetcher    = useFetcher<{ ok: boolean; jobId?: number; error?: string }>();
+  const { revalidate } = useRevalidator();
+  const pollingRef     = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const isSyncing = syncFetcher.state !== "idle";
+  const isJobRunning = !!activeJob || syncFetcher.state !== "idle";
 
+  // Poll every 4 s while there is an active job so the dashboard refreshes
   useEffect(() => {
-    if (syncFetcher.state === "idle" && syncFetcher.data) {
-      const d = syncFetcher.data;
-      if (d.ok && d.result) {
-        const { created, updated, errors } = d.result;
-        const msg = `Sync done: ${created} created, ${updated} updated${errors > 0 ? `, ${errors} errors` : ""}`;
-        try { (window as any).shopify?.toast?.show(msg); } catch {}
-        console.info("[ProductSync]", msg);
-      } else {
-        console.warn("[ProductSync] failed:", d);
+    if (isJobRunning) {
+      if (!pollingRef.current) {
+        pollingRef.current = setInterval(() => revalidate(), 4000);
+      }
+    } else {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+        // One final revalidate after job finishes to show updated counts
+        revalidate();
       }
     }
-  }, [syncFetcher.state, syncFetcher.data]);
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [isJobRunning]);
 
   return (
     <div style={{ background: "#f1f3f5", minHeight: "100vh", padding: "24px" }}>
@@ -63,18 +71,22 @@ export function HoldedDashboard({ data }: Props) {
           <syncFetcher.Form method="post" action="/app/sync-products">
             <button
               type="submit"
-              disabled={isSyncing}
+              disabled={isJobRunning}
               style={{
                 display: "flex", alignItems: "center", gap: "6px",
-                background: isSyncing ? "#555" : "#1a1a1a", color: "#fff", border: "none",
+                background: isJobRunning ? "#555" : "#1a1a1a", color: "#fff", border: "none",
                 borderRadius: "8px", padding: "8px 16px",
                 fontSize: "13px", fontWeight: 600,
-                cursor: isSyncing ? "not-allowed" : "pointer",
-                opacity: isSyncing ? 0.7 : 1,
+                cursor: isJobRunning ? "not-allowed" : "pointer",
+                opacity: isJobRunning ? 0.7 : 1,
               }}
             >
-              <span style={{ display: "inline-block", animation: isSyncing ? "spin 1s linear infinite" : "none" }}>↻</span>
-              {isSyncing ? t("home.syncRunning") : t("home.syncNow")}
+              <span style={{ display: "inline-block", animation: isJobRunning ? "spin 1s linear infinite" : "none" }}>↻</span>
+              {isJobRunning
+                ? activeJob?.totalProducts
+                  ? `${activeJob.syncedProducts}/${activeJob.totalProducts}`
+                  : t("home.syncRunning")
+                : t("home.syncNow")}
             </button>
           </syncFetcher.Form>
           <button style={{

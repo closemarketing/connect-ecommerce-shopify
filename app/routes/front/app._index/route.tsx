@@ -50,8 +50,15 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const primaryIntegration = activeIntegrations[0];
 
   if (primaryIntegration.name === "holded") {
-    const holdedData = await loadHoldedDashboardData(shopDomain, shopRecord.id, shopifyProductCount);
-    return { shop: shopDomain, activeIntegration: "holded" as const, holdedData };
+    const [holdedData, activeJob] = await Promise.all([
+      loadHoldedDashboardData(shopDomain, shopRecord.id, shopifyProductCount),
+      prisma.holdedSyncJob.findFirst({
+        where:   { shopId: shopRecord.id, status: { in: ["PENDING", "RUNNING"] } },
+        orderBy: { createdAt: "desc" },
+        select:  { id: true, status: true, syncedProducts: true, totalProducts: true },
+      }),
+    ]);
+    return { shop: shopDomain, activeIntegration: "holded" as const, holdedData, activeJob };
   }
 
   // Future integrations: add more branches here, e.g.:
@@ -61,10 +68,10 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export default function Index() {
-  const { shop, activeIntegration, holdedData } = useLoaderData<typeof loader>();
+  const { shop, activeIntegration, holdedData, activeJob } = useLoaderData<typeof loader>() as any;
 
   if (activeIntegration === "holded" && holdedData) {
-    return <HoldedDashboard data={holdedData} />;
+    return <HoldedDashboard data={holdedData} activeJob={activeJob} />;
   }
 
   // Future integrations render here, e.g.:

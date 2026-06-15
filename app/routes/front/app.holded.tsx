@@ -58,7 +58,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         data: { shopId: shop.id, status: "PENDING" },
       });
       const { runHoldedSync } = await import(
-        "../services/holded/sync-products-from-holded.server"
+        "~/services/holded/sync-products-from-holded.server"
       );
       runHoldedSync({
         jobId:        newJob.id,
@@ -153,7 +153,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
 
     const { runHoldedSync } = await import(
-      "../services/holded/sync-products-from-holded.server"
+      "~/services/holded/sync-products-from-holded.server"
     );
     runHoldedSync({
       jobId:        newJob.id,
