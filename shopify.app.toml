@@ -29,3 +29,8 @@ scopes = "write_products,read_products,read_inventory,write_inventory,read_custo
 
 [auth]
 redirect_urls = [ "https://app.connect-ecommerce.com/authenticate" ]
+
+[[app_access.admin_links]]
+label = "Sincronizar con Holded"
+target = "admin.order-detail.action.link"
+destination = "/app/orders/:id"
