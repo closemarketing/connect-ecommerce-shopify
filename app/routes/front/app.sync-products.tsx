@@ -49,6 +49,13 @@ export async function action({ request }: ActionFunctionArgs) {
     return Response.json({ ok: false, error: "No offline session found" }, { status: 400 });
   }
 
+  const runningJob = await prisma.holdedSyncJob.findFirst({
+    where: { shopId: shopRecord.id, status: { in: ["PENDING", "RUNNING"] } },
+  });
+  if (runningJob) {
+    return Response.json({ ok: false, error: "Ya hay una sincronización en curso." }, { status: 409 });
+  }
+
   const newJob = await prisma.holdedSyncJob.create({
     data: { shopId: shopRecord.id, status: "PENDING" },
   });

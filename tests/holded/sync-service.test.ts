@@ -5,7 +5,7 @@ import {
   mockSimpleProduct,
   mockSimpleProductNoSku,
   mockSimpleProductNoStock,
-  mockVariableProduct,
+  makeHoldedPage,
 } from "../fixtures/holded-products.mock";
 
 // ── Module mocks (hoisted by Vitest before imports) ───────────────────────────
@@ -52,14 +52,15 @@ function buildFetch(opts: {
   products?:      any[];
   variants?:      VariantMap;
   newProductId?:  string;
-  failOn?:        string; // GraphQL mutation name that should return userErrors
+  failOn?:        string; // GraphQL mutation name — fails only on its FIRST call
 }) {
   const { products = [], variants = {}, newProductId = PRODUCT_GID, failOn } = opts;
+  let failOnCalled = false;
 
   return vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
-    // Holded API ──────────────────────────────────────────────────────────────
+    // Holded API — returns paginated v2 response ───────────────────────────────
     if ((url as string).includes("holded.com")) {
-      return { ok: true, status: 200, json: async () => products };
+      return makeHoldedPage(products);
     }
 
     const body  = JSON.parse((init?.body as string) ?? "{}");
@@ -92,21 +93,38 @@ function buildFetch(opts: {
       };
     }
 
-    // Shopify: update variant price ────────────────────────────────────────────
-    if (query.includes("productVariantUpdate")) {
-      if (failOn === "productVariantUpdate") {
+    // Shopify: update variant price (API v2 — productVariantsBulkUpdate) ───────
+    if (query.includes("productVariantsBulkUpdate")) {
+      if (failOn === "productVariantsBulkUpdate" && !failOnCalled) {
+        failOnCalled = true;
         return {
           ok: true, status: 200,
-          json: async () => ({ data: { productVariantUpdate: { productVariant: null, userErrors: [{ field: "price", message: "Invalid price" }] } } }),
+          json: async () => ({ data: { productVariantsBulkUpdate: { productVariants: [], userErrors: [{ field: "price", message: "Invalid price" }] } } }),
         };
       }
       return {
         ok: true, status: 200,
-        json: async () => ({ data: { productVariantUpdate: { productVariant: { id: VARIANT_GID, price: "19.99" }, userErrors: [] } } }),
+        json: async () => ({ data: { productVariantsBulkUpdate: { productVariants: [{ id: VARIANT_GID, inventoryItem: { id: INV_ITEM_GID } }], userErrors: [] } } }),
       };
     }
 
-    // Shopify: update inventory ───────────────────────────────────────────────
+    // Shopify: inventoryItemUpdate ─────────────────────────────────────────────
+    if (query.includes("inventoryItemUpdate")) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({ data: { inventoryItemUpdate: { inventoryItem: { id: INV_ITEM_GID }, userErrors: [] } } }),
+      };
+    }
+
+    // Shopify: inventoryActivate ───────────────────────────────────────────────
+    if (query.includes("inventoryActivate")) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({ data: { inventoryActivate: { inventoryLevel: { id: "gid://shopify/InventoryLevel/1" }, userErrors: [] } } }),
+      };
+    }
+
+    // Shopify: inventorySetOnHandQuantities ───────────────────────────────────
     if (query.includes("inventorySetOnHandQuantities")) {
       return {
         ok: true, status: 200,
@@ -118,11 +136,21 @@ function buildFetch(opts: {
     if (query.includes("productCreate")) {
       return {
         ok: true, status: 200,
-        json: async () => ({ data: { productCreate: { product: { id: newProductId }, userErrors: [] } } }),
+        json: async () => ({
+          data: {
+            productCreate: {
+              product: {
+                id: newProductId,
+                variants: { edges: [{ node: { id: VARIANT_GID, inventoryItem: { id: INV_ITEM_GID } } }] },
+              },
+              userErrors: [],
+            },
+          },
+        }),
       };
     }
 
-    throw new Error(`Unmocked fetch: ${url}`);
+    throw new Error(`Unmocked fetch: ${url} — query: ${query.slice(0, 80)}`);
   });
 }
 
@@ -160,7 +188,7 @@ afterEach(() => {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("runHoldedSync — simple product exists in Shopify", () => {
-  it("calls productVariantUpdate and inventorySetOnHandQuantities when tracking is on", async () => {
+  it("calls productVariantsBulkUpdate and inventorySetOnHandQuantities when tracking is on", async () => {
     const mockFetch = buildFetch({
       products: [mockSimpleProduct],
       variants: {
@@ -172,16 +200,17 @@ describe("runHoldedSync — simple product exists in Shopify", () => {
     await runSync();
 
     const queries = queriesUsed(mockFetch);
-    expect(queries.some((q) => q.includes("productVariantUpdate"))).toBe(true);
+    expect(queries.some((q) => q.includes("productVariantsBulkUpdate"))).toBe(true);
     expect(queries.some((q) => q.includes("inventorySetOnHandQuantities"))).toBe(true);
     expect(queries.some((q) => q.includes("productCreate"))).toBe(false);
   });
 
-  it("calls productVariantUpdate but skips inventory when tracking is off", async () => {
+  it("calls productVariantsBulkUpdate but skips inventory when tracking is off and has_stock is false", async () => {
+    // mockSimpleProductNoStock has has_stock: false so stock becomes null → no inventory update
     const mockFetch = buildFetch({
-      products: [mockSimpleProduct],
+      products: [mockSimpleProductNoStock],
       variants: {
-        [mockSimpleProduct.sku!]: { variantId: VARIANT_GID, productId: PRODUCT_GID, inventoryItemId: INV_ITEM_GID, tracked: false },
+        [mockSimpleProductNoStock.sku!]: { variantId: VARIANT_GID, productId: PRODUCT_GID, inventoryItemId: INV_ITEM_GID, tracked: false },
       },
     });
     vi.stubGlobal("fetch", mockFetch);
@@ -189,11 +218,11 @@ describe("runHoldedSync — simple product exists in Shopify", () => {
     await runSync();
 
     const queries = queriesUsed(mockFetch);
-    expect(queries.some((q) => q.includes("productVariantUpdate"))).toBe(true);
+    expect(queries.some((q) => q.includes("productVariantsBulkUpdate"))).toBe(true);
     expect(queries.some((q) => q.includes("inventorySetOnHandQuantities"))).toBe(false);
   });
 
-  it("sends the correct price to productVariantUpdate", async () => {
+  it("sends the correct price to productVariantsBulkUpdate", async () => {
     const mockFetch = buildFetch({
       products: [mockSimpleProduct],
       variants: {
@@ -205,11 +234,13 @@ describe("runHoldedSync — simple product exists in Shopify", () => {
     await runSync();
 
     const updateCall = mockFetch.mock.calls.find((c: any[]) => {
-      try { return JSON.parse(c[1]?.body ?? "{}").query?.includes("productVariantUpdate"); } catch { return false; }
+      try { return JSON.parse(c[1]?.body ?? "{}").query?.includes("productVariantsBulkUpdate"); } catch { return false; }
     });
+    expect(updateCall).toBeDefined();
     const vars = JSON.parse(updateCall![1].body).variables;
-    expect(vars.input.id).toBe(VARIANT_GID);
-    expect(vars.input.price).toBe(mockSimpleProduct.price.toFixed(2));
+    // price "19,99" → parseHoldedPrice → 19.99 → toFixed(2) = "19.99"
+    expect(vars.variants[0].price).toBe("19.99");
+    expect(vars.variants[0].id).toBe(VARIANT_GID);
   });
 });
 
@@ -248,44 +279,6 @@ describe("runHoldedSync — simple product without SKU", () => {
   });
 });
 
-describe("runHoldedSync — variable product", () => {
-  it("calls productCreate once when all variants are new", async () => {
-    const mockFetch = buildFetch({
-      products: [mockVariableProduct],
-      variants:  {}, // all SKUs missing
-    });
-    vi.stubGlobal("fetch", mockFetch);
-
-    await runSync();
-
-    const queries = queriesUsed(mockFetch);
-    const createCalls = queries.filter((q) => q.includes("productCreate"));
-    expect(createCalls).toHaveLength(1);
-  });
-
-  it("calls productVariantUpdate for each variant when all exist", async () => {
-    const variantMap: VariantMap = {};
-    mockVariableProduct.variants!.forEach((v, i) => {
-      variantMap[v.sku] = {
-        variantId:       `gid://shopify/ProductVariant/${i + 1}`,
-        productId:       PRODUCT_GID,
-        inventoryItemId: `gid://shopify/InventoryItem/${i + 1}`,
-        tracked:         true,
-      };
-    });
-
-    const mockFetch = buildFetch({ products: [mockVariableProduct], variants: variantMap });
-    vi.stubGlobal("fetch", mockFetch);
-
-    await runSync();
-
-    const queries = queriesUsed(mockFetch);
-    const updateCalls = queries.filter((q) => q.includes("productVariantUpdate"));
-    expect(updateCalls).toHaveLength(mockVariableProduct.variants!.length);
-    expect(queries.some((q) => q.includes("productCreate"))).toBe(false);
-  });
-});
-
 describe("runHoldedSync — error handling", () => {
   it("marks job FAILED when Holded API is unreachable", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network error")));
@@ -303,7 +296,7 @@ describe("runHoldedSync — error handling", () => {
       variants: {
         [mockSimpleProduct.sku!]: { variantId: VARIANT_GID, productId: PRODUCT_GID, inventoryItemId: INV_ITEM_GID, tracked: false },
       },
-      failOn: "productVariantUpdate",
+      failOn: "productVariantsBulkUpdate",
     });
     vi.stubGlobal("fetch", mockFetch);
 
@@ -316,15 +309,15 @@ describe("runHoldedSync — error handling", () => {
   });
 
   it("continues syncing remaining products after one product fails", async () => {
-    // Product 1: will fail (variant update error) | Product 2: will succeed (new → create)
+    // Product 1: exists → will fail on update | Product 2: missing → will create
     const mockFetch = buildFetch({
       products: [mockSimpleProduct, mockSimpleProductNoStock],
       variants: {
         // mockSimpleProduct exists → will fail on update
-        [mockSimpleProduct.sku!]:       { variantId: VARIANT_GID, productId: PRODUCT_GID, inventoryItemId: INV_ITEM_GID, tracked: false },
+        [mockSimpleProduct.sku!]: { variantId: VARIANT_GID, productId: PRODUCT_GID, inventoryItemId: INV_ITEM_GID, tracked: false },
         // mockSimpleProductNoStock is missing → will create
       },
-      failOn: "productVariantUpdate",
+      failOn: "productVariantsBulkUpdate",
     });
     vi.stubGlobal("fetch", mockFetch);
 

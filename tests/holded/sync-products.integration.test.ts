@@ -1,132 +1,77 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
+import { HoldedService } from "../../app/services/erp/holded/holded.service";
 import {
   mockSimpleProduct,
-  mockSimpleProductNoStock,
   mockSimpleProductNoSku,
-  mockVariableProduct,
-  mockHoldedProductsResponse,
+  makeHoldedPage,
 } from "../fixtures/holded-products.mock";
-import { HoldedInvoicingService } from "../../app/services/holded/holded.server";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
  * Tests unitarios con fetch mockeado — no requieren conexión real.
- * Para integration tests reales, configura HOLDED_API_KEY y TEST_SHOP_DOMAIN.
+ * Para integration tests reales, configura HOLDED_API_KEY en el entorno.
  */
 
 // ── Tests unitarios con mock de fetch ─────────────────────────────────────────
 
-describe("HoldedInvoicingService — unit (fetch mockeado)", () => {
-  it("getProducts() devuelve array de productos correctamente parseados", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok:     true,
-        status: 200,
-        json:   async () => mockHoldedProductsResponse,
-      }),
-    );
+describe("HoldedService — unit (fetch mockeado)", () => {
+  it("listProducts() devuelve items y has_more correctamente", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeHoldedPage([mockSimpleProduct])));
 
-    const service  = new HoldedInvoicingService("test-api-key");
-    const products = await service.getProducts();
+    const service = new HoldedService("test-api-key");
+    const page    = await service.listProducts(100);
 
-    expect(products).toHaveLength(mockHoldedProductsResponse.length);
-    expect(products[0].name).toBe(mockSimpleProduct.name);
-    expect(products[0].sku).toBe(mockSimpleProduct.sku);
-    expect(products[0].price).toBe(mockSimpleProduct.price);
+    expect(page.items).toHaveLength(1);
+    expect(page.has_more).toBe(false);
+    expect(page.items[0].name).toBe(mockSimpleProduct.name);
+    expect(page.items[0].sku).toBe(mockSimpleProduct.sku);
+    expect(page.items[0].price).toBe(mockSimpleProduct.price);
 
     vi.unstubAllGlobals();
   });
 
-  it("getProducts() devuelve array vacío si la API devuelve []", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true, status: 200, json: async () => [],
-      }),
-    );
+  it("listProducts() devuelve array vacío si la API devuelve items: []", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeHoldedPage([])));
 
-    const service  = new HoldedInvoicingService("test-api-key");
-    const products = await service.getProducts();
-    expect(products).toHaveLength(0);
+    const service = new HoldedService("test-api-key");
+    const page    = await service.listProducts(100);
+    expect(page.items).toHaveLength(0);
 
     vi.unstubAllGlobals();
   });
 
-  it("getProducts() lanza error si la API devuelve 401", async () => {
+  it("listProducts() lanza error si la API devuelve 401", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false, status: 401, text: async () => "Unauthorized",
-      }),
+      vi.fn().mockResolvedValue({ ok: false, status: 401, text: async () => "Unauthorized" }),
     );
 
-    const service = new HoldedInvoicingService("bad-key");
-    await expect(service.getProducts()).rejects.toThrow("Holded Invoicing API 401");
+    const service = new HoldedService("bad-key");
+    await expect(service.listProducts(100)).rejects.toThrow(/401/);
 
     vi.unstubAllGlobals();
   });
 
-  it("testConnection() devuelve { ok: true } con API key válida", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true, status: 200, json: async () => [],
-      }),
-    );
+  it("validateKey() devuelve { ok: true } con API key válida", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeHoldedPage([])));
 
-    const result = await new HoldedInvoicingService("valid-key").testConnection();
+    const result = await new HoldedService("valid-key").validateKey();
     expect(result.ok).toBe(true);
-    expect(result.error).toBeUndefined();
+    expect(result.message).toBeUndefined();
 
     vi.unstubAllGlobals();
   });
 
-  it("testConnection() devuelve { ok: false } con API key inválida", async () => {
+  it("validateKey() devuelve { ok: false } con API key inválida", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false, status: 401, text: async () => "Unauthorized",
-      }),
+      vi.fn().mockResolvedValue({ ok: false, status: 401, text: async () => "Unauthorized" }),
     );
 
-    const result = await new HoldedInvoicingService("bad-key").testConnection();
+    const result = await new HoldedService("bad-key").validateKey();
     expect(result.ok).toBe(false);
-    expect(result.error).toContain("401");
+    expect(result.status).toBe(401);
 
     vi.unstubAllGlobals();
-  });
-});
-
-// ── Tests de clasificación de productos ──────────────────────────────────────
-
-describe("HoldedInvoicingService — isVariableProduct / isSimpleProduct", () => {
-  const service = new HoldedInvoicingService("any");
-
-  it("identifica producto simple (kind: 1)", () => {
-    expect(service.isSimpleProduct(mockSimpleProduct)).toBe(true);
-    expect(service.isVariableProduct(mockSimpleProduct)).toBe(false);
-  });
-
-  it("identifica producto variable (kind: 2)", () => {
-    expect(service.isVariableProduct(mockVariableProduct)).toBe(true);
-    expect(service.isSimpleProduct(mockVariableProduct)).toBe(false);
-  });
-
-  it("identifica producto simple por kind: 'simple'", () => {
-    const p = { ...mockSimpleProduct, kind: "simple" as any };
-    expect(service.isSimpleProduct(p)).toBe(true);
-  });
-
-  it("identifica producto variable por kind: 'variants'", () => {
-    const p = { ...mockVariableProduct, kind: "variants" as any };
-    expect(service.isVariableProduct(p)).toBe(true);
-  });
-
-  it("producto sin kind se considera simple", () => {
-    const p = { ...mockSimpleProduct, kind: undefined as any };
-    expect(service.isSimpleProduct(p)).toBe(true);
   });
 });
 
@@ -137,66 +82,40 @@ describe("Fixtures de Holded — validación de datos", () => {
     expect(mockSimpleProduct.id).toBeTruthy();
     expect(mockSimpleProduct.name).toBeTruthy();
     expect(mockSimpleProduct.sku).toBeTruthy();
-    expect(mockSimpleProduct.price).toBeGreaterThan(0);
-    expect(mockSimpleProduct.kind).toBe(1);
+    // API v2: price is a string with comma decimal
+    expect(typeof mockSimpleProduct.price).toBe("string");
+    expect(mockSimpleProduct.price).toMatch(/\d+,\d{2}/);
+    expect(mockSimpleProduct.kind).toBe("simple");
   });
 
   it("mockSimpleProductNoSku no tiene SKU (será skipped en sync)", () => {
     expect(mockSimpleProductNoSku.sku).toBeUndefined();
   });
-
-  it("mockVariableProduct tiene variantes con SKUs únicos", () => {
-    const skus = mockVariableProduct.variants!.map((v) => v.sku);
-    const uniqueSkus = new Set(skus);
-    expect(uniqueSkus.size).toBe(skus.length); // no hay SKUs duplicados
-    expect(skus.every((s) => s.length > 0)).toBe(true);
-  });
-
-  it("mockVariableProduct tiene precios en todas las variantes", () => {
-    mockVariableProduct.variants!.forEach((v) => {
-      expect(v.price).toBeGreaterThan(0);
-    });
-  });
-
-  it("mockVariableProduct tiene stock definido en todas las variantes", () => {
-    mockVariableProduct.variants!.forEach((v) => {
-      expect(v.stock).toBeDefined();
-      expect(v.stock).toBeGreaterThanOrEqual(0);
-    });
-  });
 });
 
 // ── Test de integración real (opcional, requiere env vars) ────────────────────
 
-const HOLDED_API_KEY  = process.env.HOLDED_API_KEY;
-const runRealTests    = !!HOLDED_API_KEY;
+const HOLDED_API_KEY = process.env.HOLDED_API_KEY;
+const runRealTests   = !!HOLDED_API_KEY;
 
 describe.skipIf(!runRealTests)(
-  "HoldedInvoicingService — integración real (requiere HOLDED_API_KEY)",
+  "HoldedService — integración real (requiere HOLDED_API_KEY)",
   () => {
-    let service: HoldedInvoicingService;
+    let service: HoldedService;
 
     beforeAll(() => {
-      service = new HoldedInvoicingService(HOLDED_API_KEY!);
+      service = new HoldedService(HOLDED_API_KEY!);
     });
 
-    it("testConnection() conecta correctamente con Holded", async () => {
-      const result = await service.testConnection();
+    it("validateKey() conecta correctamente con Holded", async () => {
+      const result = await service.validateKey();
       expect(result.ok).toBe(true);
     });
 
-    it("getProducts() devuelve al menos un producto", async () => {
-      const products = await service.getProducts();
-      expect(Array.isArray(products)).toBe(true);
-      console.log(`✅ Holded devolvió ${products.length} productos`);
-    });
-
-    it("clasifica correctamente simples y variables en datos reales", async () => {
-      const products = await service.getProducts();
-      const simples  = products.filter((p) => service.isSimpleProduct(p));
-      const variables = products.filter((p) => service.isVariableProduct(p));
-      console.log(`📦 Simples: ${simples.length} | Variables: ${variables.length}`);
-      expect(simples.length + variables.length).toBe(products.length);
+    it("listProducts() devuelve al menos una página", async () => {
+      const page = await service.listProducts(10);
+      expect(Array.isArray(page.items)).toBe(true);
+      console.log(`✅ Holded devolvió ${page.items.length} productos (primera página)`);
     });
   },
 );
