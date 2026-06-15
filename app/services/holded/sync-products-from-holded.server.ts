@@ -195,6 +195,37 @@ async function updateInventory(
   }
 }
 
+async function activateAndSetInventory(
+  shopDomain:      string,
+  accessToken:     string,
+  inventoryItemId: string,
+  locationId:      string,
+  quantity:        number,
+): Promise<void> {
+  // Enable tracking
+  await shopifyGraphQL(shopDomain, accessToken, `
+    mutation inventoryItemUpdate($id: ID!, $input: InventoryItemInput!) {
+      inventoryItemUpdate(id: $id, input: $input) {
+        inventoryItem { id }
+        userErrors { field message }
+      }
+    }
+  `, { id: inventoryItemId, input: { tracked: true } });
+
+  // Connect item to location
+  await shopifyGraphQL(shopDomain, accessToken, `
+    mutation inventoryActivate($inventoryItemId: ID!, $locationId: ID!) {
+      inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId) {
+        inventoryLevel { id }
+        userErrors { field message }
+      }
+    }
+  `, { inventoryItemId, locationId });
+
+  // Set quantity
+  await updateInventory(shopDomain, accessToken, inventoryItemId, locationId, quantity);
+}
+
 async function createProduct(
   shopDomain:  string,
   accessToken: string,
@@ -259,11 +290,11 @@ async function createProduct(
     throw new Error(`productVariantsBulkUpdate errors: ${updateErrors.map((e: any) => e.message).join(", ")}`);
   }
 
-  // Set initial stock via inventorySetOnHandQuantities (inventoryQuantities not allowed on update)
+  // Set initial stock: activate tracking, connect to location, then set quantity
   if (stock != null) {
     const inventoryItemId = updateJson?.data?.productVariantsBulkUpdate?.productVariants?.[0]?.inventoryItem?.id;
     if (inventoryItemId) {
-      await updateInventory(shopDomain, accessToken, inventoryItemId, locationId, stock);
+      await activateAndSetInventory(shopDomain, accessToken, inventoryItemId, locationId, stock);
     }
   }
 
@@ -286,8 +317,12 @@ async function syncOneProduct(
 
   if (existing) {
     await updateVariantPrice(shopDomain, accessToken, existing.productId, existing.variantId, price);
-    if (existing.tracked && stock != null) {
-      await updateInventory(shopDomain, accessToken, existing.inventoryItemId, locationId, stock);
+    if (stock != null) {
+      if (existing.tracked) {
+        await updateInventory(shopDomain, accessToken, existing.inventoryItemId, locationId, stock);
+      } else {
+        await activateAndSetInventory(shopDomain, accessToken, existing.inventoryItemId, locationId, stock);
+      }
     }
     return { sku, productName: name, shopifyId: existing.productId, action: "updated" };
   }
