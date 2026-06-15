@@ -236,6 +236,7 @@ model HoldedSyncJob {
   syncedProducts Int              @default(0)
   errorCount     Int              @default(0)
   log            String?          @db.LongText
+  summary        String?          @db.Text
   startedAt      DateTime?
   completedAt    DateTime?
   createdAt      DateTime         @default(now())

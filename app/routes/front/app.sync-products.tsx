@@ -6,46 +6,32 @@ import {
   getCredentials,
   isIntegrationActive,
 } from "~/models/Integration.server";
-import {
-  ShopifyProductAccessDeniedError,
-  syncProductsToHolded,
-} from "~/services/erp/holded/holded-product-sync.server";
+import { runHoldedSync } from "~/services/holded/sync-products-from-holded.server";
 
 /**
  * POST /api/sync/products
  * Triggered by the "Sync now" button on the dashboard.
- * Runs product sync for every active integration that supports it.
- * Returns JSON with the sync result.
+ * Reads products from Holded and creates/updates them in Shopify.
  */
 export async function action({ request }: ActionFunctionArgs) {
-  const { session, admin } = await authenticate.admin(request);
-  const shopDomain = session.shop;
+  const { session } = await authenticate.admin(request);
+  const shopDomain  = session.shop;
 
   const shopRecord = await prisma.shop.findUnique({
     where: { domain: shopDomain },
   });
   if (!shopRecord) {
-    return Response.json(
-      { ok: false, error: "Shop not found" },
-      { status: 404 },
-    );
+    return Response.json({ ok: false, error: "Shop not found" }, { status: 404 });
   }
 
-  // ── Holded ────────────────────────────────────────────────────────────────
   const holdedActive = await isIntegrationActive(shopDomain, "holded");
   if (!holdedActive) {
-    return Response.json(
-      { ok: false, error: "No active integration" },
-      { status: 400 },
-    );
+    return Response.json({ ok: false, error: "No active integration" }, { status: 400 });
   }
 
   const integration = await getIntegrationByName("holded");
   if (!integration) {
-    return Response.json(
-      { ok: false, error: "Integration not found in DB" },
-      { status: 400 },
-    );
+    return Response.json({ ok: false, error: "Integration not found in DB" }, { status: 400 });
   }
 
   const credentials = (await getCredentials(
@@ -53,34 +39,28 @@ export async function action({ request }: ActionFunctionArgs) {
     integration.id,
   )) as Record<string, string | undefined>;
   if (!credentials.apikey) {
-    return Response.json(
-      { ok: false, error: "No API key configured" },
-      { status: 400 },
-    );
+    return Response.json({ ok: false, error: "No API key configured" }, { status: 400 });
   }
 
-  try {
-    const result = await syncProductsToHolded(
-      admin.graphql.bind(admin),
-      shopRecord.id,
-      credentials.apikey,
-      integration.id,
-    );
-
-    return Response.json({ ok: true, result });
-  } catch (error) {
-    if (error instanceof ShopifyProductAccessDeniedError) {
-      return Response.json(
-        {
-          ok: false,
-          error: error.message,
-          code: "SHOPIFY_PRODUCTS_SCOPE_MISSING",
-          requiredScope: "read_products",
-        },
-        { status: 403 },
-      );
-    }
-
-    throw error;
+  const offlineSession = await prisma.session.findFirst({
+    where: { shop: shopDomain, isOnline: false },
+  });
+  if (!offlineSession?.accessToken) {
+    return Response.json({ ok: false, error: "No offline session found" }, { status: 400 });
   }
+
+  const newJob = await prisma.holdedSyncJob.create({
+    data: { shopId: shopRecord.id, status: "PENDING" },
+  });
+
+  // Fire and forget — job progress tracked in HoldedSyncJob
+  runHoldedSync({
+    jobId:        newJob.id,
+    shopId:       shopRecord.id,
+    shopDomain,
+    accessToken:  offlineSession.accessToken,
+    holdedApiKey: credentials.apikey,
+  }).catch(() => {});
+
+  return Response.json({ ok: true, jobId: newJob.id });
 }

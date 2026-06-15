@@ -10,7 +10,7 @@ import {
   getCredentials,
   saveCredentials,
 } from "../models/Integration.server";
-import { HoldedInvoicingService } from "../services/holded/holded.server";
+import { HoldedService } from "../services/erp/holded/holded.service";
 import logger from "../utils/logger.server";
 
 // ── Loader ────────────────────────────────────────────────────────────────────
@@ -98,12 +98,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     // Validate before saving
-    const holded = new HoldedInvoicingService(apikey);
-    const test   = await holded.testConnection();
+    const holded = new HoldedService(apikey);
+    const test   = await holded.validateKey();
     if (!test.ok) {
       return {
         success: false,
-        error: `API Key inválida o no se pudo conectar con Holded: ${test.error ?? ""}`,
+        error: `API Key inválida o no se pudo conectar con Holded: ${test.message ?? ""}`,
       };
     }
 
@@ -493,6 +493,7 @@ export default function HoldedPage() {
                       <th style={thStyle}>Creados</th>
                       <th style={thStyle}>Errores</th>
                       <th style={thStyle}>Duración</th>
+                      <th style={thStyle}>Resumen</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -528,6 +529,28 @@ export default function HoldedPage() {
                           </td>
                           <td style={tdStyle}>
                             {formatDuration(job.startedAt, job.completedAt)}
+                          </td>
+                          <td style={{ ...tdStyle, maxWidth: "260px" }}>
+                            {job.summary ? (
+                              <details>
+                                <summary style={{ cursor: "pointer", fontSize: "11px", color: r.errors > 0 ? "#c0392b" : "#555" }}>
+                                  {r.errors > 0 ? `Ver ${r.errors} errores` : "Ver detalle"}
+                                </summary>
+                                <pre style={{
+                                  marginTop:   "6px",
+                                  fontSize:    "10px",
+                                  color:       "#444",
+                                  whiteSpace:  "pre-wrap",
+                                  background:  "#f8f8f8",
+                                  padding:     "6px",
+                                  borderRadius:"4px",
+                                  maxHeight:   "200px",
+                                  overflowY:   "auto",
+                                }}>
+                                  {job.summary}
+                                </pre>
+                              </details>
+                            ) : "—"}
                           </td>
                         </tr>
                       );

@@ -97,7 +97,7 @@ export function HoldedDashboard({ data }: Props) {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "10px" }}>
           {[
-            { icon: "☁️",  value: products.availableInERP, label: t("home.prodAvailableInHolded"), sub: t("home.prodAvailableSub"),  iconBg: "#e8f0ff" },
+            { icon: "☁️",  value: products.availableInERPSku, label: t("home.prodAvailableInHolded"), sub: products.withoutSku > 0 ? `${products.withoutSku} sin SKU` : t("home.prodAvailableSub"),  iconBg: "#e8f0ff" },
             { icon: "🛍️", value: products.inShopify,      label: t("home.prodInShopify"),         sub: t("home.prodInShopifySub"),   iconBg: "#f0f0f0" },
             { icon: "⬇️",  value: products.toImport,       label: t("home.prodToImport"),          sub: t("home.prodToImportSub"),    iconBg: "#fff8e8" },
             { icon: "⚠️",  value: products.notInAPI,       label: t("home.prodNotInAPI"),          sub: t("home.prodNotInAPISub"),    iconBg: "#fff0f0" },

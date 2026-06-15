@@ -1,17 +1,17 @@
 import prisma from "../../db.server";
 import logger from "../../utils/logger.server";
-import { HoldedInvoicingService, type HoldedProduct, type HoldedVariant } from "./holded.server";
+import { HoldedService, parseHoldedPrice } from "../erp/holded/holded.service";
 
 const SHOPIFY_API_VERSION = "2025-10";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SyncParams {
-  jobId:         number;
-  shopId:        number;
-  shopDomain:    string;
-  accessToken:   string;
-  holdedApiKey:  string;
+  jobId:        number;
+  shopId:       number;
+  shopDomain:   string;
+  accessToken:  string;
+  holdedApiKey: string;
 }
 
 interface SyncProductResult {
@@ -36,7 +36,7 @@ async function shopifyGraphQL(
   const response = await fetch(url, {
     method:  "POST",
     headers: {
-      "Content-Type":          "application/json",
+      "Content-Type":           "application/json",
       "X-Shopify-Access-Token": accessToken,
     },
     body: JSON.stringify({ query, variables }),
@@ -86,10 +86,7 @@ async function findVariantBySku(
       }
     }
   `;
-  const json = await shopifyGraphQL(shopDomain, accessToken, query, {
-    query: `sku:"${sku}"`,
-  });
-
+  const json  = await shopifyGraphQL(shopDomain, accessToken, query, { query: `sku:"${sku}"` });
   const edges = json?.data?.productVariants?.edges ?? [];
   if (edges.length === 0) return null;
 
@@ -100,6 +97,34 @@ async function findVariantBySku(
     inventoryItemId: node.inventoryItem.id,
     tracked:         node.inventoryItem.tracked,
   };
+}
+
+async function findProductVariantByTitle(
+  shopDomain:  string,
+  accessToken: string,
+  title:       string,
+): Promise<{ productId: string; variantId: string; inventoryItemId: string } | null> {
+  const query = `
+    query findProductByTitle($query: String!) {
+      products(first: 1, query: $query) {
+        edges {
+          node {
+            id
+            variants(first: 1) {
+              edges { node { id inventoryItem { id } } }
+            }
+          }
+        }
+      }
+    }
+  `;
+  const json  = await shopifyGraphQL(shopDomain, accessToken, query, { query: `title:"${title}"` });
+  const edges = json?.data?.products?.edges ?? [];
+  if (edges.length === 0) return null;
+  const product = edges[0].node;
+  const variant = product.variants.edges[0]?.node;
+  if (!variant) return null;
+  return { productId: product.id, variantId: variant.id, inventoryItemId: variant.inventoryItem.id };
 }
 
 async function getFirstLocationId(
@@ -113,7 +138,7 @@ async function getFirstLocationId(
       }
     }
   `;
-  const json = await shopifyGraphQL(shopDomain, accessToken, query);
+  const json  = await shopifyGraphQL(shopDomain, accessToken, query);
   const edges = json?.data?.locations?.edges ?? [];
   if (edges.length === 0) throw new Error("No Shopify locations found");
   return edges[0].node.id;
@@ -122,23 +147,25 @@ async function getFirstLocationId(
 async function updateVariantPrice(
   shopDomain:  string,
   accessToken: string,
+  productId:   string,
   variantId:   string,
   price:       number,
 ): Promise<void> {
   const mutation = `
-    mutation productVariantUpdate($input: ProductVariantInput!) {
-      productVariantUpdate(input: $input) {
-        productVariant { id price }
+    mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+        productVariants { id }
         userErrors { field message }
       }
     }
   `;
-  const json = await shopifyGraphQL(shopDomain, accessToken, mutation, {
-    input: { id: variantId, price: price.toFixed(2) },
+  const json   = await shopifyGraphQL(shopDomain, accessToken, mutation, {
+    productId,
+    variants: [{ id: variantId, price: price.toFixed(2) }],
   });
-  const errors = json?.data?.productVariantUpdate?.userErrors ?? [];
+  const errors = json?.data?.productVariantsBulkUpdate?.userErrors ?? [];
   if (errors.length > 0) {
-    throw new Error(`productVariantUpdate errors: ${errors.map((e: any) => e.message).join(", ")}`);
+    throw new Error(`productVariantsBulkUpdate errors: ${errors.map((e: any) => e.message).join(", ")}`);
   }
 }
 
@@ -156,16 +183,10 @@ async function updateInventory(
       }
     }
   `;
-  const json = await shopifyGraphQL(shopDomain, accessToken, mutation, {
+  const json   = await shopifyGraphQL(shopDomain, accessToken, mutation, {
     input: {
       reason: "correction",
-      setQuantities: [
-        {
-          inventoryItemId,
-          locationId,
-          quantity,
-        },
-      ],
+      setQuantities: [{ inventoryItemId, locationId, quantity }],
     },
   });
   const errors = json?.data?.inventorySetOnHandQuantities?.userErrors ?? [];
@@ -174,169 +195,107 @@ async function updateInventory(
   }
 }
 
-async function createSimpleProduct(
+async function createProduct(
   shopDomain:  string,
   accessToken: string,
-  product:     HoldedProduct,
+  name:        string,
+  sku:         string,
+  price:       number,
+  description: string | undefined,
+  stock:       number | null,
   locationId:  string,
 ): Promise<string> {
-  const mutation = `
+  // Step 1: create the product — Shopify auto-creates a "Default Title" variant
+  const createMutation = `
     mutation productCreate($input: ProductInput!) {
       productCreate(input: $input) {
-        product { id }
+        product {
+          id
+          variants(first: 1) { edges { node { id inventoryItem { id } } } }
+        }
         userErrors { field message }
       }
     }
   `;
-
-  const variantInput: any = {
-    sku:   product.sku,
-    price: product.price.toFixed(2),
-  };
-  if (product.stock != null) {
-    variantInput.inventoryQuantities = [
-      { availableQuantity: product.stock, locationId },
-    ];
-  }
-
-  const input: any = {
-    title:           product.name,
-    descriptionHtml: product.desc ?? "",
-    status:          "ACTIVE",
-    variants:        [variantInput],
-  };
-
-  const json = await shopifyGraphQL(shopDomain, accessToken, mutation, { input });
-  const errors = json?.data?.productCreate?.userErrors ?? [];
-  if (errors.length > 0) {
-    throw new Error(`productCreate errors: ${errors.map((e: any) => e.message).join(", ")}`);
-  }
-  return json.data.productCreate.product.id;
-}
-
-async function createVariableProduct(
-  shopDomain:  string,
-  accessToken: string,
-  product:     HoldedProduct,
-  variants:    HoldedVariant[],
-  locationId:  string,
-): Promise<string> {
-  const mutation = `
-    mutation productCreate($input: ProductInput!) {
-      productCreate(input: $input) {
-        product { id }
-        userErrors { field message }
-      }
-    }
-  `;
-
-  const variantInputs = variants.map((v) => {
-    const vi: any = {
-      sku:   v.sku,
-      price: v.price.toFixed(2),
-    };
-    if (v.stock != null) {
-      vi.inventoryQuantities = [
-        { availableQuantity: v.stock, locationId },
-      ];
-    }
-    return vi;
+  const createJson = await shopifyGraphQL(shopDomain, accessToken, createMutation, {
+    input: {
+      title:           name,
+      descriptionHtml: description ?? "",
+      status:          "ACTIVE",
+    },
   });
+  const createErrors = createJson?.data?.productCreate?.userErrors ?? [];
+  let productId: string;
+  let variantId: string;
 
-  const input: any = {
-    title:           product.name,
-    descriptionHtml: product.desc ?? "",
-    status:          "ACTIVE",
-    variants:        variantInputs,
-  };
-
-  const json = await shopifyGraphQL(shopDomain, accessToken, mutation, { input });
-  const errors = json?.data?.productCreate?.userErrors ?? [];
-  if (errors.length > 0) {
-    throw new Error(`productCreate errors: ${errors.map((e: any) => e.message).join(", ")}`);
+  if (createErrors.length > 0) {
+    // Product may already exist from a partial previous run — look it up by title
+    const existing = await findProductVariantByTitle(shopDomain, accessToken, name);
+    if (!existing) {
+      throw new Error(`productCreate errors: ${createErrors.map((e: any) => e.message).join(", ")}`);
+    }
+    productId = existing.productId;
+    variantId = existing.variantId;
+  } else {
+    productId = createJson.data.productCreate.product.id;
+    variantId = createJson.data.productCreate.product.variants.edges[0]?.node?.id;
   }
-  return json.data.productCreate.product.id;
+
+  // Step 2: update the auto-created default variant with SKU and price
+  const updateMutation = `
+    mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+        productVariants { id inventoryItem { id } }
+        userErrors { field message }
+      }
+    }
+  `;
+  const updateJson = await shopifyGraphQL(shopDomain, accessToken, updateMutation, {
+    productId,
+    variants: [{ id: variantId, price: price.toFixed(2), inventoryItem: { sku } }],
+  });
+  const updateErrors = updateJson?.data?.productVariantsBulkUpdate?.userErrors ?? [];
+  if (updateErrors.length > 0) {
+    throw new Error(`productVariantsBulkUpdate errors: ${updateErrors.map((e: any) => e.message).join(", ")}`);
+  }
+
+  // Set initial stock via inventorySetOnHandQuantities (inventoryQuantities not allowed on update)
+  if (stock != null) {
+    const inventoryItemId = updateJson?.data?.productVariantsBulkUpdate?.productVariants?.[0]?.inventoryItem?.id;
+    if (inventoryItemId) {
+      await updateInventory(shopDomain, accessToken, inventoryItemId, locationId, stock);
+    }
+  }
+
+  return productId;
 }
 
-// ── Product-level sync functions ──────────────────────────────────────────────
+// ── Product sync ──────────────────────────────────────────────────────────────
 
-async function syncSimpleProduct(
+async function syncOneProduct(
   shopDomain:  string,
   accessToken: string,
-  product:     HoldedProduct,
+  name:        string,
+  sku:         string,
+  price:       number,
+  description: string | undefined,
+  stock:       number | null,
   locationId:  string,
 ): Promise<SyncProductResult> {
-  const sku = product.sku?.trim();
-
-  if (!sku) {
-    return { sku: "", productName: product.name, action: "skipped" };
-  }
-
   const existing = await findVariantBySku(shopDomain, accessToken, sku);
 
   if (existing) {
-    await updateVariantPrice(shopDomain, accessToken, existing.variantId, product.price);
-    if (existing.tracked && product.stock != null) {
-      await updateInventory(shopDomain, accessToken, existing.inventoryItemId, locationId, product.stock);
+    await updateVariantPrice(shopDomain, accessToken, existing.productId, existing.variantId, price);
+    if (existing.tracked && stock != null) {
+      await updateInventory(shopDomain, accessToken, existing.inventoryItemId, locationId, stock);
     }
-    return { sku, productName: product.name, shopifyId: existing.productId, action: "updated" };
+    return { sku, productName: name, shopifyId: existing.productId, action: "updated" };
   }
 
-  const shopifyId = await createSimpleProduct(shopDomain, accessToken, product, locationId);
-  return { sku, productName: product.name, shopifyId, action: "created" };
-}
-
-async function syncVariableProduct(
-  shopDomain:  string,
-  accessToken: string,
-  product:     HoldedProduct,
-  locationId:  string,
-): Promise<SyncProductResult[]> {
-  const variants = product.variants ?? [];
-
-  if (variants.length === 0) {
-    return [{ sku: product.sku ?? "", productName: product.name, action: "skipped" }];
-  }
-
-  const results:  SyncProductResult[] = [];
-  const missing:  HoldedVariant[]     = [];
-
-  for (const variant of variants) {
-    const sku = variant.sku?.trim();
-    if (!sku) {
-      results.push({ sku: "", productName: `${product.name} - ${variant.name}`, action: "skipped" });
-      continue;
-    }
-
-    const existing = await findVariantBySku(shopDomain, accessToken, sku);
-
-    if (existing) {
-      await updateVariantPrice(shopDomain, accessToken, existing.variantId, variant.price);
-      if (existing.tracked && variant.stock != null) {
-        await updateInventory(shopDomain, accessToken, existing.inventoryItemId, locationId, variant.stock);
-      }
-      results.push({ sku, productName: `${product.name} - ${variant.name}`, shopifyId: existing.productId, action: "updated" });
-    } else {
-      missing.push(variant);
-    }
-
-    await sleep(300);
-  }
-
-  // If ALL variants were missing, create the whole variable product
-  if (missing.length === variants.length) {
-    const shopifyId = await createVariableProduct(shopDomain, accessToken, product, missing, locationId);
-    for (const v of missing) {
-      results.push({ sku: v.sku, productName: `${product.name} - ${v.name}`, shopifyId, action: "created" });
-    }
-  } else {
-    // Some were found, some not — individual missing variants are skipped (partial match)
-    for (const v of missing) {
-      results.push({ sku: v.sku, productName: `${product.name} - ${v.name}`, action: "skipped" });
-    }
-  }
-
-  return results;
+  const shopifyId = await createProduct(
+    shopDomain, accessToken, name, sku, price, description, stock, locationId,
+  );
+  return { sku, productName: name, shopifyId, action: "created" };
 }
 
 // ── Main exported function ────────────────────────────────────────────────────
@@ -344,7 +303,6 @@ async function syncVariableProduct(
 export async function runHoldedSync(params: SyncParams): Promise<void> {
   const { jobId, shopId, shopDomain, accessToken, holdedApiKey } = params;
 
-  // Mark job as RUNNING
   await prisma.holdedSyncJob.update({
     where: { id: jobId },
     data:  { status: "RUNNING", startedAt: new Date() },
@@ -355,51 +313,62 @@ export async function runHoldedSync(params: SyncParams): Promise<void> {
   let errorCount  = 0;
 
   try {
-    const holdedService = new HoldedInvoicingService(holdedApiKey);
-    const products      = await holdedService.getProducts();
+    const holded = new HoldedService(holdedApiKey);
 
-    logger.info(`Holded sync [job ${jobId}]: ${products.length} products fetched`);
+    // Fetch all Holded products via paginated API v2
+    const allProducts: import("../erp/holded/holded.service").HoldedProduct[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await holded.listProducts(100, cursor);
+      for (const p of page.items ?? []) {
+        if (!p.archived) allProducts.push(p);
+      }
+      cursor = page.has_more ? page.cursor : undefined;
+    } while (cursor);
+
+    logger.info(`Holded sync [job ${jobId}]: ${allProducts.length} products fetched`);
 
     await prisma.holdedSyncJob.update({
       where: { id: jobId },
-      data:  { totalProducts: products.length },
+      data:  { totalProducts: allProducts.length },
     });
 
     const locationId = await getFirstLocationId(shopDomain, accessToken);
 
-    for (let i = 0; i < products.length; i++) {
-      const product = products[i];
+    for (let i = 0; i < allProducts.length; i++) {
+      const product = allProducts[i];
 
       try {
-        let results: SyncProductResult[];
+        const sku = product.sku?.trim();
 
-        if (holdedService.isVariableProduct(product)) {
-          results = await syncVariableProduct(shopDomain, accessToken, product, locationId);
+        if (!sku) {
+          logEntries.push({ sku: "", productName: product.name, action: "skipped", error: "Sin SKU — producto no sincronizado" });
+          syncedCount++;
         } else {
-          results = [await syncSimpleProduct(shopDomain, accessToken, product, locationId)];
-        }
+          const price       = parseHoldedPrice(product.price);
+          const description = product.description?.trim() || undefined;
 
-        for (const r of results) {
-          logEntries.push(r);
-          if (r.action === "error") {
-            errorCount++;
-          } else {
-            syncedCount++;
-          }
+          // stock is a string in the API response ("0", "-3", etc.)
+          // Only pass stock when the product actually tracks inventory.
+          const stock = product.has_stock && product.stock != null
+            ? Math.max(0, Number(product.stock))
+            : null;
+
+          const result = await syncOneProduct(
+            shopDomain, accessToken,
+            product.name, sku, price, description, stock,
+            locationId,
+          );
+          logEntries.push(result);
+          syncedCount++;
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         logger.error(`Holded sync [job ${jobId}]: error on product "${product.name}": ${errMsg}`);
-        logEntries.push({
-          sku:         product.sku ?? "",
-          productName: product.name,
-          action:      "error",
-          error:       errMsg,
-        });
+        logEntries.push({ sku: product.sku ?? "", productName: product.name, action: "error", error: errMsg });
         errorCount++;
       }
 
-      // Update DB progress every 5 products
       if ((i + 1) % 5 === 0) {
         await prisma.holdedSyncJob.update({
           where: { id: jobId },
@@ -407,22 +376,41 @@ export async function runHoldedSync(params: SyncParams): Promise<void> {
         });
       }
 
-      await sleep(500);
+      await sleep(300);
     }
 
-    // Final job update — COMPLETED
+    const errorEntries = logEntries.filter((e) => e.action === "error");
+    const skippedEntries = logEntries.filter((e) => e.action === "skipped");
+    const summaryLines: string[] = [
+      `Total: ${allProducts.length} | Creados: ${logEntries.filter((e) => e.action === "created").length} | Actualizados: ${logEntries.filter((e) => e.action === "updated").length} | Sin SKU: ${skippedEntries.length} | Errores: ${errorEntries.length}`,
+    ];
+    if (errorEntries.length > 0) {
+      summaryLines.push("--- Errores ---");
+      for (const e of errorEntries) {
+        summaryLines.push(`• ${e.productName} (${e.sku || "sin SKU"}): ${e.error}`);
+      }
+    }
+    if (skippedEntries.length > 0) {
+      summaryLines.push(`--- Sin SKU (${skippedEntries.length}) ---`);
+      for (const e of skippedEntries) {
+        summaryLines.push(`• ${e.productName}`);
+      }
+    }
+    const summary = summaryLines.join("\n");
+
     await prisma.holdedSyncJob.update({
       where: { id: jobId },
       data:  {
-        status:        "COMPLETED",
+        status:         "COMPLETED",
         syncedProducts: syncedCount,
         errorCount,
-        log:           JSON.stringify(logEntries),
-        completedAt:   new Date(),
+        log:            JSON.stringify(logEntries),
+        summary,
+        completedAt:    new Date(),
       },
     });
 
-    // Persist last_sync_at credential
+    // Persist last_sync_at
     const integration = await prisma.integration.findUnique({ where: { name: "holded" } });
     if (integration) {
       await prisma.integrationCredential.upsert({

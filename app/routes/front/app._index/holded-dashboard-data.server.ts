@@ -3,10 +3,12 @@ import { HoldedService } from "~/services/erp/holded/holded.service";
 
 export interface HoldedDashboardData {
   products: {
-    inShopify:      number;
-    availableInERP: number;
-    toImport:       number;
-    notInAPI:       number;
+    inShopify:          number;
+    availableInERP:     number;
+    availableInERPSku:  number;
+    withoutSku:         number;
+    toImport:           number;
+    notInAPI:           number;
   };
   orders: {
     synced:   number;
@@ -31,42 +33,51 @@ export async function loadHoldedDashboardData(
   shopId: number,
   shopifyProductCount: number,
 ): Promise<HoldedDashboardData> {
-  const [holdedProductCount, syncStats] = await Promise.all([
+  const [holdedCounts, syncStats] = await Promise.all([
     fetchHoldedProductCount(shopDomain),
     fetchOrderStats(shopId),
   ]);
 
+  const { withSku, withoutSku } = holdedCounts;
+
   return {
     products: {
-      inShopify:      shopifyProductCount,
-      availableInERP: holdedProductCount,
-      toImport:       Math.max(0, holdedProductCount - shopifyProductCount),
-      notInAPI:       Math.max(0, shopifyProductCount - holdedProductCount),
+      inShopify:         shopifyProductCount,
+      availableInERP:    withSku + withoutSku,
+      availableInERPSku: withSku,
+      withoutSku,
+      toImport:          Math.max(0, withSku - shopifyProductCount),
+      notInAPI:          Math.max(0, shopifyProductCount - withSku),
     },
     orders: syncStats.orders,
     recentOrders: syncStats.recentOrders,
   };
 }
 
-async function fetchHoldedProductCount(shopDomain: string): Promise<number> {
+async function fetchHoldedProductCount(shopDomain: string): Promise<{ withSku: number; withoutSku: number }> {
   try {
     const credRows = await prisma.integrationCredential.findMany({
       where: { sessionId: shopDomain, integration: { name: "holded" } },
     });
     const apikey = credRows.find((r) => r.key === "apikey")?.value;
-    if (!apikey) return 0;
+    if (!apikey) return { withSku: 0, withoutSku: 0 };
 
     const svc = new HoldedService(apikey);
-    let count = 0;
+    let withSku = 0;
+    let withoutSku = 0;
     let cursor: string | undefined;
     do {
       const page = await svc.listProducts(100, cursor);
-      count += (page.items ?? []).filter((p) => !p.archived).length;
+      for (const p of page.items ?? []) {
+        if (p.archived) continue;
+        if (p.sku?.trim()) withSku++;
+        else withoutSku++;
+      }
       cursor = page.has_more ? page.cursor : undefined;
     } while (cursor);
-    return count;
+    return { withSku, withoutSku };
   } catch {
-    return 0;
+    return { withSku: 0, withoutSku: 0 };
   }
 }
 

@@ -2,7 +2,9 @@
 
 ## Project Overview
 
-Shopify embedded app that syncs orders, customers, and products to external ERPs/CRMs. Multi-tenant (one app instance, many shops). Built with React Router 7 + Prisma + MySQL.
+Shopify embedded app that syncs orders, customers, and products with external ERPs/CRMs. Multi-tenant (one app instance, many shops). Built with React Router 7 + Prisma + MySQL.
+
+**Product sync direction: ERP → Shopify.** The ERP (e.g. Holded) is the source of truth for products. The sync reads products from the ERP and creates/updates them in Shopify, never the other way around. This runs on a configurable schedule (stored as `sync_interval_hours` credential).
 
 ## Commands
 
@@ -34,6 +36,11 @@ All integrations are defined in `app/services/integrations/registry.server.ts`:
 The dispatcher (`dispatcher.server.ts`) routes Shopify webhook payloads to every active integration for a shop. Each integration implements `ERPController` interface:
 - `syncOrderToERP(order, shopId)` — triggered by Shopify webhooks
 - `processWebhook(payload, event, adminGraphql, shopId)` — triggered by inbound ERP webhooks
+
+**Product sync** is separate from the webhook dispatcher. It runs on a schedule:
+- `app/services/holded/sync-products-from-holded.server.ts` — reads all products from Holded (API v2, paginated) and upserts them into Shopify by SKU
+- `app/routes/front/app.sync-products.tsx` — POST endpoint that creates a `HoldedSyncJob` and fires the sync async
+- `app/routes/app.holded.tsx` — UI page; auto-triggers sync when `sync_interval_hours` has elapsed, or on manual "Sync now"
 
 ### Database
 

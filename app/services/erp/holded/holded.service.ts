@@ -27,6 +27,8 @@ export interface HoldedProduct {
 	description?: string;
 	archived?: boolean;
 	has_stock?: boolean;
+	for_sale?: boolean;
+	for_purchase?: boolean;
 	stock?: string;
 	kind?: string;
 	[key: string]: any;
