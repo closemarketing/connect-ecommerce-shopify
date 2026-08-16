@@ -53,4 +53,11 @@ export interface ERPController {
 		adminGraphql: (query: string, options?: any) => Promise<any>,
 		shopId: number
 	): Promise<SyncResult>;
+
+	/**
+	 * Optional: a URL to view the synced record in the ERP's own UI (e.g. an
+	 * invoice or deal page). Return null when the ERP has no such deep link, or
+	 * when the connector doesn't support one. Callers must treat this as optional.
+	 */
+	getRecordUrl?(result: SyncResult): string | null;
 }

@@ -42,12 +42,13 @@ The dispatcher (`dispatcher.server.ts`) routes Shopify webhook payloads to every
 - `app/routes/front/app.sync-products.tsx` — POST endpoint that creates a `HoldedSyncJob` and fires the sync async
 - `app/routes/app.holded.tsx` — UI page; auto-triggers sync when `sync_interval_hours` has elapsed, or on manual "Sync now"
 
-**Holded order sync** (Shopify → Holded) runs both automatically (via the webhook dispatcher, on `orders/create`/`orders/updated`) and manually from a per-order page:
-- `app/services/erp/holded/holded.controller.ts` — resolves the document type (invoice/salesreceipt/salesorder/waybill; "smart" mode picks by presence of a VAT/NIF) and guards against duplicate documents by checking `SyncLog` for an existing successful sync before creating a new one in Holded
-- `app/routes/front/app.orders.$id.tsx` — order detail page with a "Sincronizar con Holded" button
-- `app/routes/api/api.holded-sync-order.tsx` — POST endpoint the button calls
+**Manual order sync** (Shopify → ERP) runs both automatically (via the webhook dispatcher, on `orders/create`/`orders/updated`) and manually from a per-order page. It's connector-agnostic — adding a new ERP under `app/services/erp/<name>/` with a factory entry in `dispatcher.server.ts` is all it takes to show up here, nothing below hardcodes an ERP name:
+- `app/routes/front/app.orders.$id.tsx` — order detail page; renders one sync card per active integration (via `getActiveControllersForShop`), each with its own "Sincronizar con {ERP}" button and a "Ver en {ERP}" link when the controller implements `getRecordUrl()`
+- `app/routes/api/api.sync-order.tsx` — generic POST endpoint the button calls; takes `integration` (name) in the form body and builds the right controller via `buildControllerForShop()`
 - `app/routes/front/app.orders.tsx` — redirector: Shopify's admin_link extensions can't template a resource id into the destination path, only append it as a query param, so this route reads that param and forwards to `app.orders.$id.tsx`
-- `extensions/holded-order-link/` — the `admin_link` extension that adds the "Sincronizar con Holded" entry to the order's action menu in Shopify admin (target `admin.order-details.action.link`)
+- `extensions/order-sync-link/` — the `admin_link` extension that adds a generic "Sincronizar pedido con ERP" entry to the order's action menu in Shopify admin (target `admin.order-details.action.link`). Its label is static across all merchants regardless of which ERP they've configured, so keep it generic rather than naming one connector
+- `app/services/logging/sync-logger.server.ts` → `findExistingOrderSync()` — shared duplicate-sync guard any `ERPController.syncOrderToERP` can call: most ERPs have no upsert-by-external-key for invoices/deals/orders, so re-running the sync would otherwise create a second record
+- `app/services/erp/holded/holded.controller.ts` — the Holded-specific implementation: resolves the document type (invoice/salesreceipt/salesorder/waybill; "smart" mode picks by presence of a VAT/NIF) and implements `getRecordUrl()` to link back to the created document
 
 ### Database
 
@@ -95,6 +96,10 @@ TEST_SHOP_DOMAIN        Shop used in tests
 3. `dispatcher.server.ts` — register controller factory
 4. `prisma/seed.js` — add `Integration` DB row
 5. `npm run setup` — apply schema changes if any
+
+Once active for a shop, `syncOrderToERP` is picked up automatically by both the webhook dispatcher and the manual per-order sync page (`app.orders.$id.tsx`) — no core changes needed. Two things worth doing in the new controller:
+- Call `findExistingOrderSync(shopId, shopifyId, this.getName())` (from `sync-logger.server.ts`) at the top of `syncOrderToERP` if the ERP has no upsert-by-external-key for the record you're creating — otherwise every re-trigger (webhook retry, "Sincronizar" button) creates a duplicate.
+- Implement `getRecordUrl(result)` if the ERP has a per-record UI page worth linking to — it powers the "Ver en {ERP}" link on the order page. Skip it if there's nothing meaningful to link to.
 
 ## Structural Inspiration: woocommerce-es
 

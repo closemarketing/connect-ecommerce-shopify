@@ -2,9 +2,7 @@ import { useFetcher, useLoaderData } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
-import { getIntegrationByName, getCredentials } from "~/models/Integration.server";
-import { holdedDocUrl } from "~/services/erp/holded/holded.controller";
-import type { HoldedDocType } from "~/services/erp/holded/holded.service";
+import { getActiveControllersForShop } from "~/services/integrations/dispatcher.server";
 
 const ORDER_QUERY = `#graphql
   query getOrder($id: ID!) {
@@ -27,6 +25,13 @@ const ORDER_QUERY = `#graphql
   }
 `;
 
+interface IntegrationSyncState {
+  name:        string;
+  displayName: string;
+  erpId:       string | null;
+  docUrl:      string | null;
+}
+
 // ── Loader ────────────────────────────────────────────────────────────────────
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
@@ -39,62 +44,58 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const gqlData     = await gqlResponse.json();
   const order       = gqlData?.data?.order ?? null;
 
-  let syncLog = null;
+  // One row per active integration — connector-agnostic. Adding a new ERP under
+  // app/services/erp/<name>/ (with a controller factory in dispatcher.server.ts)
+  // is all it takes for it to show up here, no changes needed in this route.
+  let integrationSyncStates: IntegrationSyncState[] = [];
   if (order) {
     const shop = await prisma.shop.findUnique({ where: { domain: session.shop } });
     if (shop) {
-      syncLog = await prisma.syncLog.findFirst({
-        where: {
-          shopId:   shop.id,
-          syncType: "ORDER",
-          shopifyId: numericId,
-          status:    "SUCCESS",
-          erpName:   "holded",
-        },
-        orderBy: { createdAt: "desc" },
-      });
+      const activeIntegrations = await getActiveControllersForShop(session.shop);
+
+      integrationSyncStates = await Promise.all(
+        activeIntegrations.map(async ({ name, displayName, controller }) => {
+          const syncLog = await prisma.syncLog.findFirst({
+            where: {
+              shopId:    shop.id,
+              syncType:  "ORDER",
+              shopifyId: numericId,
+              status:    "SUCCESS",
+              erpName:   name,
+            },
+            orderBy: { createdAt: "desc" },
+          });
+
+          if (!syncLog?.externalId) {
+            return { name, displayName, erpId: null, docUrl: null };
+          }
+
+          let previousResult: Record<string, any> = {};
+          try {
+            previousResult = syncLog.responseData ? JSON.parse(syncLog.responseData) : {};
+          } catch {
+            // Older log rows may pre-date structured responseData — ignore.
+          }
+
+          const docUrl = controller.getRecordUrl?.({
+            ...previousResult,
+            success: true,
+            erpId:   syncLog.externalId,
+          }) ?? null;
+
+          return { name, displayName, erpId: String(syncLog.externalId), docUrl };
+        }),
+      );
     }
   }
 
-  let existingDocUrl: string | null = null;
-  if (syncLog?.externalId) {
-    // The doc type actually used is stored on the log itself (result.docType) —
-    // read that first since "smart" mode can resolve differently per order and
-    // the current credential value doesn't tell us what a past sync produced.
-    let loggedDocType: HoldedDocType | undefined;
-    try {
-      loggedDocType = syncLog.responseData ? JSON.parse(syncLog.responseData).docType : undefined;
-    } catch {
-      // Older log rows may pre-date the docType field — fall through to the credential fallback.
-    }
-
-    let resolvedType = loggedDocType;
-    if (!resolvedType) {
-      const integration = await getIntegrationByName("holded");
-      if (integration) {
-        const creds  = await getCredentials(session.shop, integration.id) as Record<string, string>;
-        const docType = (creds.holded_doc_type ?? "invoice") as "smart" | HoldedDocType;
-        resolvedType  = docType === "smart" ? "invoice" : docType;
-      }
-    }
-
-    if (resolvedType) existingDocUrl = holdedDocUrl(resolvedType, String(syncLog.externalId));
-  }
-
-  return { order, syncLog, numericId, gqlId, existingDocUrl };
+  return { order, numericId, gqlId, integrationSyncStates };
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function OrderDetailPage() {
-  const { order, syncLog, gqlId, existingDocUrl } = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<{ ok: boolean; erpId?: string; docUrl?: string; error?: string }>();
-
-  const isSyncing  = fetcher.state !== "idle";
-  const syncResult = fetcher.data;
-
-  const erpId  = syncResult?.erpId  ?? syncLog?.externalId  ?? null;
-  const docUrl = syncResult?.docUrl ?? existingDocUrl;
+  const { order, gqlId, integrationSyncStates } = useLoaderData<typeof loader>();
 
   if (!order) {
     return (
@@ -106,14 +107,6 @@ export default function OrderDetailPage() {
 
   const customer = order.customer;
   const total    = order.totalPriceSet?.shopMoney;
-
-  const handleSync = () => {
-    const form = new FormData();
-    form.append("shopifyOrderId", gqlId);
-    fetcher.submit(form, { method: "post", action: "/api/holded-sync-order" });
-  };
-
-  const isSynced = !!(erpId || syncLog?.externalId);
 
   return (
     <>
@@ -177,59 +170,93 @@ export default function OrderDetailPage() {
           </table>
         </div>
 
-        {/* Holded sync card */}
-        <div style={cardStyle}>
-          <h3 style={headingStyle}>Sincronización Holded</h3>
-
-          <div style={{ marginTop: "12px" }}>
-            {isSynced ? (
-              <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                <span style={syncedBadgeStyle}>Sincronizado</span>
-                <span style={{ fontSize: "13px", color: "#444" }}>
-                  ID: {erpId ?? syncLog?.externalId}
-                </span>
-                {docUrl ? (
-                  <button
-                    onClick={() => window.open(docUrl, "_blank", "noopener")}
-                    style={{ fontSize: "13px", color: "#0050b3", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
-                  >
-                    Ver en Holded ↗
-                  </button>
-                ) : null}
-              </div>
-            ) : (
-              <span style={unsyncedBadgeStyle}>No sincronizado</span>
-            )}
+        {/* One sync card per active integration */}
+        {integrationSyncStates.length === 0 ? (
+          <div style={cardStyle}>
+            <p style={{ fontSize: "13px", color: "#6b7280", margin: 0 }}>
+              No hay ninguna integración activa para esta tienda.
+            </p>
           </div>
-
-          {syncResult && !syncResult.ok && (
-            <div style={{ marginTop: "12px", padding: "10px 14px", background: "#fff0f0", borderRadius: "6px", fontSize: "13px", color: "#c0392b" }}>
-              Error: {syncResult.error}
-            </div>
-          )}
-
-          <div style={{ marginTop: "16px" }}>
-            <button
-              onClick={handleSync}
-              disabled={isSyncing}
-              style={{
-                padding:       "8px 16px",
-                fontSize:      "14px",
-                fontWeight:    600,
-                borderRadius:  "6px",
-                border:        "none",
-                background:    isSyncing ? "#ccc" : "#008060",
-                color:         "white",
-                cursor:        isSyncing ? "not-allowed" : "pointer",
-              }}
-            >
-              {isSyncing ? "Sincronizando…" : "Sincronizar con Holded"}
-            </button>
-          </div>
-        </div>
+        ) : (
+          integrationSyncStates.map((state) => (
+            <IntegrationSyncCard key={state.name} gqlId={gqlId} state={state} />
+          ))
+        )}
 
       </div>
     </>
+  );
+}
+
+// ── Per-integration sync card ────────────────────────────────────────────────
+
+function IntegrationSyncCard({ gqlId, state }: { gqlId: string; state: IntegrationSyncState }) {
+  const fetcher = useFetcher<{ ok: boolean; erpId?: string; docUrl?: string; error?: string }>({
+    key: `sync-order-${state.name}`,
+  });
+
+  const isSyncing  = fetcher.state !== "idle";
+  const syncResult = fetcher.data;
+
+  const erpId  = syncResult?.erpId  ?? state.erpId  ?? null;
+  const docUrl = syncResult?.docUrl ?? state.docUrl;
+  const isSynced = !!erpId;
+
+  const handleSync = () => {
+    const form = new FormData();
+    form.append("shopifyOrderId", gqlId);
+    form.append("integration", state.name);
+    fetcher.submit(form, { method: "post", action: "/api/sync-order" });
+  };
+
+  return (
+    <div style={cardStyle}>
+      <h3 style={headingStyle}>Sincronización {state.displayName}</h3>
+
+      <div style={{ marginTop: "12px" }}>
+        {isSynced ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+            <span style={syncedBadgeStyle}>Sincronizado</span>
+            <span style={{ fontSize: "13px", color: "#444" }}>ID: {erpId}</span>
+            {docUrl ? (
+              <button
+                onClick={() => window.open(docUrl, "_blank", "noopener")}
+                style={{ fontSize: "13px", color: "#0050b3", background: "none", border: "none", cursor: "pointer", padding: 0, textDecoration: "underline" }}
+              >
+                Ver en {state.displayName} ↗
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <span style={unsyncedBadgeStyle}>No sincronizado</span>
+        )}
+      </div>
+
+      {syncResult && !syncResult.ok && (
+        <div style={{ marginTop: "12px", padding: "10px 14px", background: "#fff0f0", borderRadius: "6px", fontSize: "13px", color: "#c0392b" }}>
+          Error: {syncResult.error}
+        </div>
+      )}
+
+      <div style={{ marginTop: "16px" }}>
+        <button
+          onClick={handleSync}
+          disabled={isSyncing}
+          style={{
+            padding:       "8px 16px",
+            fontSize:      "14px",
+            fontWeight:    600,
+            borderRadius:  "6px",
+            border:        "none",
+            background:    isSyncing ? "#ccc" : "#008060",
+            color:         "white",
+            cursor:        isSyncing ? "not-allowed" : "pointer",
+          }}
+        >
+          {isSyncing ? "Sincronizando…" : `Sincronizar con ${state.displayName}`}
+        </button>
+      </div>
+    </div>
   );
 }
 

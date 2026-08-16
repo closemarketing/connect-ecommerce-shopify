@@ -1,6 +1,7 @@
 import prisma from "../../db.server";
 import logger from "../../utils/logger.server";
 import type { SyncType, SyncStatus } from "@prisma/client";
+import type { SyncResult } from "../erp/erp-controller.interface";
 
 interface CreateSyncLogParams {
   shopId:        number;
@@ -170,6 +171,43 @@ export async function logOrderSync(
     integrationId,
     erpName,
   });
+}
+
+/**
+ * Looks up a prior successful ORDER sync for a given ERP so connectors can avoid
+ * creating a duplicate record when the ERP has no natural upsert-by-external-key
+ * (e.g. a new invoice/deal every time syncOrderToERP runs). Any ERPController can
+ * call this at the top of syncOrderToERP — it's connector-agnostic.
+ *
+ * Returns a SyncResult built from the stored log (action forced to "skipped",
+ * any other connector-specific fields carried over from responseData), or null
+ * if no successful sync exists yet.
+ */
+export async function findExistingOrderSync(
+  shopId: number,
+  shopifyId: string,
+  erpName: string,
+): Promise<SyncResult | null> {
+  const existing = await prisma.syncLog.findFirst({
+    where: { shopId, syncType: "ORDER", shopifyId, erpName, status: "SUCCESS" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!existing?.externalId) return null;
+
+  let previous: Partial<SyncResult> = {};
+  try {
+    previous = existing.responseData ? JSON.parse(existing.responseData) : {};
+  } catch {
+    // Older log rows may pre-date structured responseData — ignore.
+  }
+
+  return {
+    ...previous,
+    success: true,
+    erpId: existing.externalId,
+    shopifyId,
+    action: "skipped",
+  };
 }
 
 /**

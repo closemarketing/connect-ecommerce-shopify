@@ -1,9 +1,8 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
-import { getIntegrationByName, getCredentials } from "~/models/Integration.server";
-import { HoldedController, holdedDocUrl } from "~/services/erp/holded/holded.controller";
-import type { HoldedDocType } from "~/services/erp/holded/holded.service";
+import { getIntegrationByName } from "~/models/Integration.server";
+import { buildControllerForShop } from "~/services/integrations/dispatcher.server";
 import { logOrderSync, logSyncError } from "~/services/logging/sync-logger.server";
 
 const ORDER_QUERY = `#graphql
@@ -64,14 +63,21 @@ function gqlOrderToRest(gqlOrder: any): any {
   };
 }
 
+/**
+ * POST /api/sync-order
+ * Manual per-order sync, called from the order detail page (app.orders.$id.tsx)
+ * for any active integration — the connector is selected by name, not hardcoded,
+ * so adding a new ERP under app/services/erp/<name>/ needs no change here.
+ */
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session, admin } = await authenticate.admin(request);
 
-  const formData     = await request.formData();
-  const shopifyGqlId = String(formData.get("shopifyOrderId") ?? "").trim();
+  const formData        = await request.formData();
+  const shopifyGqlId     = String(formData.get("shopifyOrderId") ?? "").trim();
+  const integrationName  = String(formData.get("integration") ?? "").trim();
 
-  if (!shopifyGqlId) {
-    return Response.json({ ok: false, error: "shopifyOrderId es requerido." }, { status: 400 });
+  if (!shopifyGqlId || !integrationName) {
+    return Response.json({ ok: false, error: "shopifyOrderId e integration son requeridos." }, { status: 400 });
   }
 
   const shop = await prisma.shop.findUnique({ where: { domain: session.shop } });
@@ -79,14 +85,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return Response.json({ ok: false, error: "Tienda no encontrada." }, { status: 404 });
   }
 
-  const integration = await getIntegrationByName("holded");
+  const integration = await getIntegrationByName(integrationName);
   if (!integration) {
-    return Response.json({ ok: false, error: "Integración Holded no encontrada." }, { status: 500 });
+    return Response.json({ ok: false, error: `Integración "${integrationName}" no encontrada.` }, { status: 404 });
   }
 
-  const credentials = await getCredentials(session.shop, integration.id) as Record<string, string>;
-  if (!credentials.apikey) {
-    return Response.json({ ok: false, error: "API Key de Holded no configurada." }, { status: 400 });
+  const controller = await buildControllerForShop(session.shop, integrationName);
+  if (!controller) {
+    return Response.json({ ok: false, error: `Integración "${integrationName}" sin credenciales configuradas.` }, { status: 400 });
   }
 
   const gqlResponse = await admin.graphql(ORDER_QUERY, { variables: { id: shopifyGqlId } });
@@ -98,19 +104,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   const order = gqlOrderToRest(gqlOrder);
-
-  const docType     = (credentials.holded_doc_type ?? "smart") as "smart" | HoldedDocType;
-  const serialNum   = credentials.holded_serial || undefined;
-  const autoApprove = credentials.holded_auto_approve === "true";
-
-  const controller = new HoldedController(credentials.apikey, { docType, serialNum, autoApprove });
-  const result     = await controller.syncOrderToERP(order, shop.id);
+  const result = await controller.syncOrderToERP(order, shop.id);
 
   const shopifyRestId = shopifyGqlId.replace(/^gid:\/\/shopify\/Order\//, "");
 
   if (result.success && result.erpId) {
     // "skipped" means the controller found this order already synced — that SyncLog
-    // row already exists, so only persist a new one when a document was actually created.
+    // row already exists, so only persist a new one when a record was actually created.
     if (result.action !== "skipped") {
       await logOrderSync(
         shop.id,
@@ -122,15 +122,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         undefined,
         undefined,
         integration.id,
-        "holded",
+        integrationName,
       ).catch(() => null);
     }
 
-    // The controller resolves "smart" mode internally (VAT present → invoice, else
-    // salesreceipt) and reports the actual type back via result.docType.
-    const resolvedDocType = (result.docType ?? (docType === "smart" ? "invoice" : docType)) as HoldedDocType;
-
-    const docUrl = holdedDocUrl(resolvedDocType, String(result.erpId));
+    const docUrl = controller.getRecordUrl?.(result) ?? null;
     return Response.json({ ok: true, erpId: result.erpId, docUrl });
   }
 
@@ -144,7 +140,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     undefined,
     undefined,
     integration.id,
-    "holded",
+    integrationName,
   ).catch(() => null);
 
   return Response.json({ ok: false, error: result.error ?? "Error desconocido." }, { status: 500 });

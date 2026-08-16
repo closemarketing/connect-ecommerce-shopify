@@ -106,6 +106,22 @@ describe("HoldedController.syncOrderToERP — explicit doc types", () => {
   });
 });
 
+describe("HoldedController.getRecordUrl", () => {
+  it("builds a link to the created document using result.docType", () => {
+    const controller = new HoldedController("key", { docType: "invoice", autoApprove: false });
+    const url = controller.getRecordUrl({ success: true, erpId: "inv-1", docType: "invoice" });
+
+    expect(url).toBe("https://app.holded.com/invoicing/invoices/inv-1");
+  });
+
+  it("returns null when erpId or docType is missing", () => {
+    const controller = new HoldedController("key", { docType: "invoice", autoApprove: false });
+
+    expect(controller.getRecordUrl({ success: true, docType: "invoice" })).toBeNull();
+    expect(controller.getRecordUrl({ success: true, erpId: "inv-1" })).toBeNull();
+  });
+});
+
 describe("HoldedController.syncOrderToERP — duplicate-document guard", () => {
   it("returns the existing sync without calling Holded again when already synced", async () => {
     (prismaMock.syncLog.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({

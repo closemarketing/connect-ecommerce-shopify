@@ -1,8 +1,8 @@
 api_version = "2025-10"
 
 [[extensions]]
-name = "Sincronizar con Holded"
-handle = "holded-order-link"
+name = "Sincronizar pedido con ERP"
+handle = "order-sync-link"
 type = "admin_link"
 uid = "c551502f-a528-4657-a1dc-46b710f7ebba"
 
