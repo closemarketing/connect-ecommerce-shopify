@@ -1,0 +1,11 @@
+api_version = "2025-10"
+
+[[extensions]]
+name = "Sincronizar con Holded"
+handle = "holded-order-link"
+type = "admin_link"
+uid = "c551502f-a528-4657-a1dc-46b710f7ebba"
+
+  [[extensions.targeting]]
+  target = "admin.order-details.action.link"
+  url = "/app/orders"

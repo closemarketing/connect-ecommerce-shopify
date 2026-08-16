@@ -4,6 +4,7 @@ import prisma from "~/db.server";
 import { getIntegrationByName, getCredentials } from "~/models/Integration.server";
 import { HoldedController, holdedDocUrl } from "~/services/erp/holded/holded.controller";
 import type { HoldedDocType } from "~/services/erp/holded/holded.service";
+import { logOrderSync, logSyncError } from "~/services/logging/sync-logger.server";
 
 const ORDER_QUERY = `#graphql
   query getOrder($id: ID!) {
@@ -108,41 +109,43 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const shopifyRestId = shopifyGqlId.replace(/^gid:\/\/shopify\/Order\//, "");
 
   if (result.success && result.erpId) {
-    await prisma.syncLog.create({
-      data: {
-        shopId:        shop.id,
-        syncType:      "ORDER",
-        shopifyId:     shopifyRestId,
-        externalId:    String(result.erpId),
-        status:        "SUCCESS",
-        erpName:       "holded",
-        integrationId: integration.id,
-        requestData:   JSON.stringify({ shopifyOrderId: shopifyGqlId }),
-        responseData:  JSON.stringify({ erpId: result.erpId }),
-      },
-    }).catch(() => null);
+    // "skipped" means the controller found this order already synced — that SyncLog
+    // row already exists, so only persist a new one when a document was actually created.
+    if (result.action !== "skipped") {
+      await logOrderSync(
+        shop.id,
+        shopifyRestId,
+        Number(result.erpId) || 0,
+        { shopifyOrderId: shopifyGqlId },
+        result,
+        undefined,
+        undefined,
+        undefined,
+        integration.id,
+        "holded",
+      ).catch(() => null);
+    }
 
-    // Resolve actual doc type for URL (smart was already resolved inside controller)
-    const resolvedDocType: HoldedDocType = docType === "smart"
-      ? "invoice"   // conservative default; controller already resolved it but we don't receive it back
-      : docType as HoldedDocType;
+    // The controller resolves "smart" mode internally (VAT present → invoice, else
+    // salesreceipt) and reports the actual type back via result.docType.
+    const resolvedDocType = (result.docType ?? (docType === "smart" ? "invoice" : docType)) as HoldedDocType;
 
     const docUrl = holdedDocUrl(resolvedDocType, String(result.erpId));
     return Response.json({ ok: true, erpId: result.erpId, docUrl });
   }
 
-  await prisma.syncLog.create({
-    data: {
-      shopId:        shop.id,
-      syncType:      "ORDER",
-      shopifyId:     shopifyRestId,
-      status:        "ERROR",
-      erpName:       "holded",
-      integrationId: integration.id,
-      errorMessage:  result.error ?? "Error desconocido",
-      requestData:   JSON.stringify({ shopifyOrderId: shopifyGqlId }),
-    },
-  }).catch(() => null);
+  await logSyncError(
+    shop.id,
+    "ORDER",
+    shopifyRestId,
+    result.error ?? "Error desconocido",
+    { shopifyOrderId: shopifyGqlId },
+    undefined,
+    undefined,
+    undefined,
+    integration.id,
+    "holded",
+  ).catch(() => null);
 
   return Response.json({ ok: false, error: result.error ?? "Error desconocido." }, { status: 500 });
 };

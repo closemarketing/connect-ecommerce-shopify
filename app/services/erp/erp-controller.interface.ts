@@ -11,6 +11,8 @@ export interface SyncResult {
 	error?: string;
 	/** What operation was performed */
 	action?: "created" | "updated" | "skipped";
+	/** ERP-specific record subtype actually used (e.g. Holded doc type: invoice/salesreceipt/salesorder/waybill) */
+	docType?: string;
 }
 
 /**

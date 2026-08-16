@@ -38,9 +38,16 @@ The dispatcher (`dispatcher.server.ts`) routes Shopify webhook payloads to every
 - `processWebhook(payload, event, adminGraphql, shopId)` — triggered by inbound ERP webhooks
 
 **Product sync** is separate from the webhook dispatcher. It runs on a schedule:
-- `app/services/holded/sync-products-from-holded.server.ts` — reads all products from Holded (API v2, paginated) and upserts them into Shopify by SKU
+- `app/services/erp/holded/sync-products-from-holded.server.ts` — reads all products from Holded (API v2, paginated) and upserts them into Shopify by SKU
 - `app/routes/front/app.sync-products.tsx` — POST endpoint that creates a `HoldedSyncJob` and fires the sync async
 - `app/routes/app.holded.tsx` — UI page; auto-triggers sync when `sync_interval_hours` has elapsed, or on manual "Sync now"
+
+**Holded order sync** (Shopify → Holded) runs both automatically (via the webhook dispatcher, on `orders/create`/`orders/updated`) and manually from a per-order page:
+- `app/services/erp/holded/holded.controller.ts` — resolves the document type (invoice/salesreceipt/salesorder/waybill; "smart" mode picks by presence of a VAT/NIF) and guards against duplicate documents by checking `SyncLog` for an existing successful sync before creating a new one in Holded
+- `app/routes/front/app.orders.$id.tsx` — order detail page with a "Sincronizar con Holded" button
+- `app/routes/api/api.holded-sync-order.tsx` — POST endpoint the button calls
+- `app/routes/front/app.orders.tsx` — redirector: Shopify's admin_link extensions can't template a resource id into the destination path, only append it as a query param, so this route reads that param and forwards to `app.orders.$id.tsx`
+- `extensions/holded-order-link/` — the `admin_link` extension that adds the "Sincronizar con Holded" entry to the order's action menu in Shopify admin (target `admin.order-details.action.link`)
 
 ### Database
 

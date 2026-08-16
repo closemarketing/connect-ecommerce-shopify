@@ -58,13 +58,27 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   let existingDocUrl: string | null = null;
   if (syncLog?.externalId) {
-    const integration = await getIntegrationByName("holded");
-    if (integration) {
-      const creds = await getCredentials(session.shop, integration.id) as Record<string, string>;
-      const docType = (creds.holded_doc_type ?? "invoice") as HoldedDocType;
-      const resolvedType: HoldedDocType = docType === ("smart" as any) ? "invoice" : docType;
-      existingDocUrl = holdedDocUrl(resolvedType, String(syncLog.externalId));
+    // The doc type actually used is stored on the log itself (result.docType) —
+    // read that first since "smart" mode can resolve differently per order and
+    // the current credential value doesn't tell us what a past sync produced.
+    let loggedDocType: HoldedDocType | undefined;
+    try {
+      loggedDocType = syncLog.responseData ? JSON.parse(syncLog.responseData).docType : undefined;
+    } catch {
+      // Older log rows may pre-date the docType field — fall through to the credential fallback.
     }
+
+    let resolvedType = loggedDocType;
+    if (!resolvedType) {
+      const integration = await getIntegrationByName("holded");
+      if (integration) {
+        const creds  = await getCredentials(session.shop, integration.id) as Record<string, string>;
+        const docType = (creds.holded_doc_type ?? "invoice") as "smart" | HoldedDocType;
+        resolvedType  = docType === "smart" ? "invoice" : docType;
+      }
+    }
+
+    if (resolvedType) existingDocUrl = holdedDocUrl(resolvedType, String(syncLog.externalId));
   }
 
   return { order, syncLog, numericId, gqlId, existingDocUrl };

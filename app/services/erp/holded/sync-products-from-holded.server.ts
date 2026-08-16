@@ -351,7 +351,7 @@ export async function runHoldedSync(params: SyncParams): Promise<void> {
     const holded = new HoldedService(holdedApiKey);
 
     // Fetch all Holded products via paginated API v2
-    const allProducts: import("../erp/holded/holded.service").HoldedProduct[] = [];
+    const allProducts: import("./holded.service").HoldedProduct[] = [];
     let cursor: string | undefined;
     do {
       const page = await holded.listProducts(100, cursor);

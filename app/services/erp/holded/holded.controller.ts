@@ -1,6 +1,7 @@
 import type { ERPController, SyncResult } from "../erp-controller.interface";
 import { HoldedService } from "./holded.service";
 import type { HoldedContact, HoldedInvoice, HoldedInvoiceItem, HoldedDocType } from "./holded.service";
+import prisma from "../../../db.server";
 
 const NOT_IMPLEMENTED = (method: string): SyncResult => ({
 	success: false,
@@ -57,8 +58,16 @@ export class HoldedController implements ERPController {
 
 	// ── Shopify → ERP ─────────────────────────────────────────────────────────
 
-	async syncOrderToERP(order: any, _shopId: number): Promise<SyncResult> {
+	async syncOrderToERP(order: any, shopId: number): Promise<SyncResult> {
 		try {
+			const shopifyId = String(order.id);
+
+			// A Holded document (invoice/receipt/order/waybill) has no natural upsert key,
+			// so re-running the sync for an order already synced would create a duplicate
+			// document in Holded. Guard against that using our own sync ledger.
+			const existing = await this.findExistingSync(shopId, shopifyId);
+			if (existing) return existing;
+
 			const { contactId, contactCode } = await this.upsertContact(order);
 
 			const resolvedDocType = this.resolveDocType(contactCode);
@@ -91,8 +100,9 @@ export class HoldedController implements ERPController {
 			return {
 				success:   true,
 				erpId:     doc.id,
-				shopifyId: String(order.id),
+				shopifyId,
 				action:    "created",
+				docType:   resolvedDocType,
 			};
 		} catch (err) {
 			return {
@@ -114,6 +124,33 @@ export class HoldedController implements ERPController {
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
+
+	/**
+	 * Returns a SyncResult for an order that already has a successful "holded" ORDER
+	 * sync log, or null if none exists yet.
+	 */
+	private async findExistingSync(shopId: number, shopifyId: string): Promise<SyncResult | null> {
+		const existing = await prisma.syncLog.findFirst({
+			where:   { shopId, syncType: "ORDER", shopifyId, erpName: "holded", status: "SUCCESS" },
+			orderBy: { createdAt: "desc" },
+		});
+		if (!existing?.externalId) return null;
+
+		let docType: string | undefined;
+		try {
+			docType = existing.responseData ? JSON.parse(existing.responseData).docType : undefined;
+		} catch {
+			// Older log rows may pre-date the docType field — ignore.
+		}
+
+		return {
+			success: true,
+			erpId:   existing.externalId,
+			shopifyId,
+			action:  "skipped",
+			docType,
+		};
+	}
 
 	private resolveDocType(contactCode: string): HoldedDocType {
 		if (this.orderSettings.docType !== "smart") {
