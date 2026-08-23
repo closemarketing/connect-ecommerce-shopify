@@ -4,8 +4,11 @@ import prisma from "~/db.server";
 import { getIntegrationByName, getCredentials } from "~/models/Integration.server";
 import { HoldedController, holdedDocUrl } from "~/services/erp/holded/holded.controller";
 import type { HoldedDocType } from "~/services/erp/holded/holded.service";
+import { getExtensionShop } from "~/utils/verify-extension-token.server";
 
-const ORDER_QUERY = `#graphql
+const SHOPIFY_API_VERSION = "2025-10";
+
+const ORDER_QUERY = `
   query getOrder($id: ID!) {
     order(id: $id) {
       id
@@ -63,8 +66,48 @@ function gqlOrderToRest(gqlOrder: any): any {
   };
 }
 
+async function fetchOrderViaRest(shopDomain: string, accessToken: string, shopifyGqlId: string) {
+  const url = `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
+  const res = await fetch(url, {
+    method:  "POST",
+    headers: {
+      "Content-Type":           "application/json",
+      "X-Shopify-Access-Token": accessToken,
+    },
+    body: JSON.stringify({ query: ORDER_QUERY, variables: { id: shopifyGqlId } }),
+  });
+  const json = await res.json() as any;
+  return json?.data?.order ?? null;
+}
+
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session, admin } = await authenticate.admin(request);
+  const isExtension = request.headers.has("Authorization");
+
+  let shopDomain:   string;
+  let accessToken:  string;
+  let adminGraphql: ((query: string, opts: any) => Promise<any>) | null = null;
+
+  if (isExtension) {
+    // Request comes from Admin UI Extension — verify JWT, load session from DB
+    const ext = getExtensionShop(request);
+    if (!ext.ok) return ext.response;
+
+    shopDomain = ext.shop;
+    const session = await prisma.session.findFirst({
+      where:   { shop: shopDomain },
+      orderBy: { expires: "desc" },
+    });
+    if (!session?.accessToken) {
+      return Response.json({ ok: false, error: "Sesión no encontrada para esta tienda." }, { status: 401 });
+    }
+    accessToken = session.accessToken;
+  } else {
+    // Request comes from embedded app — standard OAuth session
+    const { session, admin } = await authenticate.admin(request);
+    shopDomain  = session.shop;
+    accessToken = session.accessToken!;
+    adminGraphql = (q: string, opts: any) => admin.graphql(q, opts).then((r: any) => r.json());
+  }
 
   const formData     = await request.formData();
   const shopifyGqlId = String(formData.get("shopifyOrderId") ?? "").trim();
@@ -73,7 +116,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return Response.json({ ok: false, error: "shopifyOrderId es requerido." }, { status: 400 });
   }
 
-  const shop = await prisma.shop.findUnique({ where: { domain: session.shop } });
+  const shop = await prisma.shop.findUnique({ where: { domain: shopDomain } });
   if (!shop) {
     return Response.json({ ok: false, error: "Tienda no encontrada." }, { status: 404 });
   }
@@ -83,14 +126,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return Response.json({ ok: false, error: "Integración Holded no encontrada." }, { status: 500 });
   }
 
-  const credentials = await getCredentials(session.shop, integration.id) as Record<string, string>;
+  const credentials = await getCredentials(shopDomain, integration.id) as Record<string, string>;
   if (!credentials.apikey) {
     return Response.json({ ok: false, error: "API Key de Holded no configurada." }, { status: 400 });
   }
 
-  const gqlResponse = await admin.graphql(ORDER_QUERY, { variables: { id: shopifyGqlId } });
-  const gqlData     = await gqlResponse.json();
-  const gqlOrder    = gqlData?.data?.order;
+  // Fetch order data
+  let gqlOrder: any;
+  if (adminGraphql) {
+    const gqlData = await adminGraphql(ORDER_QUERY, { variables: { id: shopifyGqlId } });
+    gqlOrder = gqlData?.data?.order;
+  } else {
+    gqlOrder = await fetchOrderViaRest(shopDomain, accessToken, shopifyGqlId);
+  }
 
   if (!gqlOrder) {
     return Response.json({ ok: false, error: "Pedido no encontrado en Shopify." }, { status: 404 });
@@ -122,11 +170,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       },
     }).catch(() => null);
 
-    // Resolve actual doc type for URL (smart was already resolved inside controller)
-    const resolvedDocType: HoldedDocType = docType === "smart"
-      ? "invoice"   // conservative default; controller already resolved it but we don't receive it back
-      : docType as HoldedDocType;
-
+    const resolvedDocType: HoldedDocType = docType === "smart" ? "invoice" : docType as HoldedDocType;
     const docUrl = holdedDocUrl(resolvedDocType, String(result.erpId));
     return Response.json({ ok: true, erpId: result.erpId, docUrl });
   }

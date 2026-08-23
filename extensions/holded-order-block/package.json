@@ -1,0 +1,16 @@
+{
+  "name": "holded-order-block",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@shopify/ui-extensions": "~2025.10.0",
+    "preact": "^10.24.0",
+    "@preact/signals": "^2.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2"
+  }
+}

@@ -1,0 +1,12 @@
+api_version = "2025-10"
+uid = "4f606da8-2606-9995-64fd-1d67c79f5b2c9623433e"
+
+[[extensions]]
+type = "ui_extension"
+name = "Holded Order Block"
+handle = "holded-order-block"
+
+  [[extensions.targeting]]
+  module = "./src/BlockExtension.tsx"
+  target = "admin.order-details.block.render"
+  label = "Estado Holded"
