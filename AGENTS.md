@@ -15,7 +15,6 @@ This app must meet and maintain the [Built for Shopify](https://shopify.dev/docs
 - Prioritize performance: avoid unnecessary Admin API calls, blocking UI work, and storefront or checkout impact.
 - Process only the customer data required for the integration. Request and document Protected Customer Data access before using orders or personal fields, and keep security and privacy requirements current.
 - Before a release, check the current Built for Shopify criteria and app status in the Partner Dashboard **Distribution** page. Built for Shopify status requires Shopify evaluation after all prerequisites are met; it is not conferred by a code change alone.
-
 ## Commands
 
 ```bash
@@ -39,7 +38,6 @@ This repository has no `APP_VERSION` environment variable. Use the Git semver ta
 5. Create a GitHub release from that tag with `gh release create X.Y.Z`. Write Spanish release notes, grouped by type (for example, "Correcciones de errores", "Mejoras de integración" and "Otras mejoras"), summarizing changes merged into `main` since the previous tag.
 
 Do not deploy, publish a Shopify version, tag, or create a GitHub release unless the user explicitly requests that release.
-
 ## Architecture
 
 ### Routes split
@@ -160,8 +158,6 @@ The main plugin file (`woocommerce-es.php`) defines a `conecom_get_options()` fu
 - **Capability flags over conditionals** — declare what a connector supports in its definition; subsystems check flags rather than `if connector === 'holded'`.
 - **One connector class per ERP** — each class owns its own API calls, field mapping, and error handling; shared logic lives in Helpers.
 - **Add-on pattern** — each ERP connector is a self-contained add-on (separate repo/package in WooCommerce world; separate `app/services/erp/<name>/` module here) that registers itself into the core registry.
-
-
 ## Test Enforcement
 
 - Every behavior change must be covered by a new or updated Vitest test. Tests must not depend on live Shopify, Holded, Clientify, or database credentials; use fixtures and mocked HTTP responses.
