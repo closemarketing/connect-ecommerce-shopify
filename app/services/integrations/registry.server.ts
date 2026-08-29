@@ -73,6 +73,45 @@ export const INTEGRATION_REGISTRY: IntegrationDefinition[] = [
 			},
 		],
 	},
+	{
+		name:        "odoo",
+		displayName: "Odoo",
+		description: "Sincroniza pedidos y productos (con variantes) con Odoo ERP.",
+		icon:        "🟠",
+		docsUrl:     "https://www.odoo.com/documentation/18.0/developer/reference/external_api.html",
+		websiteUrl:  "https://www.odoo.com",
+		credentials: [
+			{
+				key:         "url",
+				label:       "URL del servidor",
+				type:        "url",
+				required:    true,
+				placeholder: "https://miempresa.odoo.com",
+				helpText:    "URL base de tu instancia de Odoo, sin barra final.",
+			},
+			{
+				key:      "dbname",
+				label:    "Base de datos",
+				type:     "text",
+				required: true,
+				helpText: "Nombre de la base de datos de Odoo.",
+			},
+			{
+				key:      "username",
+				label:    "Usuario",
+				type:     "text",
+				required: true,
+				helpText: "Email o login del usuario de Odoo usado para la API.",
+			},
+			{
+				key:      "apikey",
+				label:    "API Key",
+				type:     "password",
+				required: true,
+				helpText: "API Key generada en el perfil del usuario de Odoo (Odoo 17+), o su contraseña.",
+			},
+		],
+	},
 ];
 
 export function getIntegrationDefinition(name: string): IntegrationDefinition | undefined {

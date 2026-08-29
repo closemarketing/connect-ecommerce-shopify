@@ -1,6 +1,7 @@
 import type { ERPController, SyncResult } from "../erp/erp-controller.interface";
 import { ClientifyController } from "../erp/clientify/clientify.controller";
 import { HoldedController } from "../erp/holded/holded.controller";
+import { OdooController } from "../erp/odoo/odoo.controller";
 import db from "../../db.server";
 import logger from "../../utils/logger.server";
 import {
@@ -25,6 +26,12 @@ const CONTROLLER_FACTORIES: Record<string, (creds: Record<string, string>) => ER
 		const autoApprove = creds.holded_auto_approve === "true";
 		return new HoldedController(creds.apikey ?? "", { docType, serialNum, autoApprove });
 	},
+	odoo: (creds) => new OdooController({
+		url:      creds.url ?? "",
+		dbname:   creds.dbname ?? "",
+		username: creds.username ?? "",
+		apikey:   creds.apikey ?? "",
+	}),
 };
 
 export function getControllerFactory(name: string) {

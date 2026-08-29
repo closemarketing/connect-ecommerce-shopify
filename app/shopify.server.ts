@@ -10,6 +10,7 @@ import prisma from "./db.server";
 
 // ── Billing plan keys — import these wherever you need to check/request ───────
 export const PLAN_HOLDED = "Holded — €19/month";
+export const PLAN_ODOO   = "Odoo — €29/month";
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -28,6 +29,16 @@ const shopify = shopifyApp({
       lineItems: [
         {
           amount:       19,
+          currencyCode: "EUR",
+          interval:     BillingInterval.Every30Days,
+        },
+      ],
+      trialDays: 14,
+    },
+    [PLAN_ODOO]: {
+      lineItems: [
+        {
+          amount:       29,
           currencyCode: "EUR",
           interval:     BillingInterval.Every30Days,
         },

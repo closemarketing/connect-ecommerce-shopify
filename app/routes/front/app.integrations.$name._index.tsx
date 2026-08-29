@@ -4,9 +4,10 @@ import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { useTranslation } from "react-i18next";
 
-import { authenticate, PLAN_HOLDED } from "~/shopify.server";
+import { authenticate, PLAN_HOLDED, PLAN_ODOO } from "~/shopify.server";
 import { getIntegrationDefinition } from "~/services/integrations/registry.server";
 import { HoldedService } from "~/services/erp/holded/holded.service";
+import { OdooService } from "~/services/erp/odoo/odoo.service";
 import {
 	getIntegrationByName,
 	getCredentials,
@@ -51,7 +52,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
 	if (intent === "toggle") {
 		const next = String(formData.get("active") ?? "false") === "true";
-		const plan = name === "holded" ? PLAN_HOLDED : null;
+		const plan = name === "holded" ? PLAN_HOLDED : name === "odoo" ? PLAN_ODOO : null;
 
 		if (plan && !process.env.SKIP_BILLING) {
 			if (next) {
@@ -95,6 +96,17 @@ export async function action({ request, params }: ActionFunctionArgs) {
 			}
 			return { success: false, errorKey: "integrationDetail.errorCannotConnect" };
 		}
+	}
+
+	if (name === "odoo" && credentials.url && credentials.dbname && credentials.username && credentials.apikey) {
+		const odoo = new OdooService({
+			url:      credentials.url,
+			dbname:   credentials.dbname,
+			username: credentials.username,
+			apikey:   credentials.apikey,
+		});
+		const ok = await odoo.validateCredentials();
+		if (!ok) return { success: false, errorKey: "integrationDetail.errorCannotConnect" };
 	}
 
 	if (name === "clientify" && credentials.apikey) {

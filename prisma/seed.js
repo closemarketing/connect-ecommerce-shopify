@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 const INTEGRATIONS = [
   { name: "clientify", displayName: "Clientify" },
   { name: "holded",    displayName: "Holded"    },
+  { name: "odoo",      displayName: "Odoo"      },
 ];
 
 async function seed() {
