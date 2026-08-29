@@ -6,7 +6,7 @@ interface CreateSyncLogParams {
   shopId:        number;
   syncType:      SyncType;
   shopifyId:     string;
-  externalId?:  number;
+  externalId?:  string | number;
   parentOrderId?: string;
   status:        SyncStatus;
   method?:       string;
@@ -31,7 +31,7 @@ export async function createSyncLog(params: CreateSyncLogParams) {
         shopId:        params.shopId,
         syncType:      params.syncType,
         shopifyId:     params.shopifyId,
-        externalId:   params.externalId,
+        externalId:   params.externalId?.toString(),
         parentOrderId: params.parentOrderId,
         status:        params.status,
         method:        params.method,
@@ -118,7 +118,7 @@ export async function logProductSync(
 export async function logDealSync(
   shopId: number,
   shopifyOrderId: string,
-  externalDealId: number,
+  externalDealId: string | number,
   requestData?: any,
   responseData?: any,
   parentOrderId?: string,
@@ -147,7 +147,7 @@ export async function logDealSync(
 export async function logOrderSync(
   shopId: number,
   shopifyOrderId: string,
-  externalDealId: number,
+  externalDealId: string | number,
   requestData?: any,
   responseData?: any,
   method?: string,

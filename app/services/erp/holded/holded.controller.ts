@@ -93,6 +93,7 @@ export class HoldedController implements ERPController {
 				erpId:     doc.id,
 				shopifyId: String(order.id),
 				action:    "created",
+				documentType: resolvedDocType,
 			};
 		} catch (err) {
 			return {
