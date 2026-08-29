@@ -9,6 +9,8 @@ import { getActiveIntegrations } from "~/models/Integration.server";
 
 import { loadHoldedDashboardData } from "./holded-dashboard-data.server";
 import { HoldedDashboard } from "./HoldedDashboard";
+import { loadOdooDashboardData } from "./odoo-dashboard-data.server";
+import { OdooDashboard } from "./OdooDashboard";
 import { NoConnectionState } from "./NoConnectionState";
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -61,6 +63,18 @@ export async function loader({ request }: LoaderFunctionArgs) {
     return { shop: shopDomain, activeIntegration: "holded" as const, holdedData, activeJob };
   }
 
+  if (primaryIntegration.name === "odoo") {
+    const [odooData, activeJob] = await Promise.all([
+      loadOdooDashboardData(shopDomain, shopRecord.id, shopifyProductCount),
+      prisma.odooSyncJob.findFirst({
+        where:   { shopId: shopRecord.id, status: { in: ["PENDING", "RUNNING"] } },
+        orderBy: { createdAt: "desc" },
+        select:  { id: true, status: true, syncedProducts: true, totalProducts: true },
+      }),
+    ]);
+    return { shop: shopDomain, activeIntegration: "odoo" as const, odooData, activeJob };
+  }
+
   // Future integrations: add more branches here, e.g.:
   // if (primaryIntegration.name === "clientify") { ... }
 
@@ -68,10 +82,14 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export default function Index() {
-  const { shop, activeIntegration, holdedData, activeJob } = useLoaderData<typeof loader>() as any;
+  const { shop, activeIntegration, holdedData, odooData, activeJob } = useLoaderData<typeof loader>() as any;
 
   if (activeIntegration === "holded" && holdedData) {
     return <HoldedDashboard data={holdedData} activeJob={activeJob} />;
+  }
+
+  if (activeIntegration === "odoo" && odooData) {
+    return <OdooDashboard data={odooData} activeJob={activeJob} />;
   }
 
   // Future integrations render here, e.g.:

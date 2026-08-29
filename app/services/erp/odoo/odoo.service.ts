@@ -107,6 +107,10 @@ export class OdooService {
 		]);
 	}
 
+	async searchCount(model: string, domain: any[] = []): Promise<number> {
+		return this.executeKw<number>(model, "search_count", [domain]);
+	}
+
 	async searchRead<T = any>(
 		model:  string,
 		domain: any[] = [],

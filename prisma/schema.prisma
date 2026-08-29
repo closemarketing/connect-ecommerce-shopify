@@ -27,6 +27,7 @@ model Shop {
   erpWebhookConfigs ERPWebhookConfig[]
   shopIntegrations  ShopIntegration[]
   holdedSyncJobs    HoldedSyncJob[]
+  odooSyncJobs      OdooSyncJob[]
 }
 
 model Session {
@@ -241,6 +242,34 @@ model HoldedSyncJob {
   completedAt    DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
+
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum OdooSyncStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+model OdooSyncJob {
+  id             Int            @id @default(autoincrement())
+  shopId         Int
+  status         OdooSyncStatus @default(PENDING)
+  totalProducts  Int?
+  syncedProducts Int            @default(0)
+  errorCount     Int            @default(0)
+  log            String?        @db.LongText
+  summary        String?        @db.Text
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
