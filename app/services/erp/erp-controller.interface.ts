@@ -11,6 +11,8 @@ export interface SyncResult {
 	error?: string;
 	/** What operation was performed */
 	action?: "created" | "updated" | "skipped";
+	/** Type of document created by the ERP, when applicable */
+	documentType?: string;
 }
 
 /**

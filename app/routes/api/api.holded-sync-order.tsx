@@ -9,17 +9,18 @@ import { getExtensionShop } from "~/utils/verify-extension-token.server";
 const SHOPIFY_API_VERSION = "2025-10";
 
 const ORDER_QUERY = `
-  query getOrder($id: ID!) {
+  query getOrder($id: ID!, $lineItemsAfter: String) {
     order(id: $id) {
       id
       name
       email
       totalPriceSet { shopMoney { amount currencyCode } }
       customer { firstName lastName email }
-      lineItems(first: 50) {
+      lineItems(first: 250, after: $lineItemsAfter) {
         edges {
           node { title quantity sku originalUnitPriceSet { shopMoney { amount } } }
         }
+        pageInfo { hasNextPage endCursor }
       }
       billingAddress { address1 address2 city zip countryCode company phone }
       shippingLines(first: 5) { edges { node { title originalPriceSet { shopMoney { amount } } } } }
@@ -66,7 +67,12 @@ function gqlOrderToRest(gqlOrder: any): any {
   };
 }
 
-async function fetchOrderViaRest(shopDomain: string, accessToken: string, shopifyGqlId: string) {
+async function fetchOrderViaRest(
+  shopDomain: string,
+  accessToken: string,
+  shopifyGqlId: string,
+  lineItemsAfter?: string | null,
+) {
   const url = `https://${shopDomain}/admin/api/${SHOPIFY_API_VERSION}/graphql.json`;
   const res = await fetch(url, {
     method:  "POST",
@@ -74,10 +80,46 @@ async function fetchOrderViaRest(shopDomain: string, accessToken: string, shopif
       "Content-Type":           "application/json",
       "X-Shopify-Access-Token": accessToken,
     },
-    body: JSON.stringify({ query: ORDER_QUERY, variables: { id: shopifyGqlId } }),
+    body: JSON.stringify({
+      query: ORDER_QUERY,
+      variables: { id: shopifyGqlId, lineItemsAfter: lineItemsAfter ?? null },
+    }),
   });
   const json = await res.json() as any;
   return json?.data?.order ?? null;
+}
+
+async function fetchCompleteOrder(
+  fetchPage: (lineItemsAfter?: string | null) => Promise<any>,
+) {
+  let order = await fetchPage();
+  if (!order) return null;
+
+  const lineItemEdges = [...(order.lineItems?.edges ?? [])];
+  let pageInfo = order.lineItems?.pageInfo;
+
+  while (pageInfo?.hasNextPage && pageInfo.endCursor) {
+    const nextOrder = await fetchPage(pageInfo.endCursor);
+    if (!nextOrder) throw new Error("No se pudieron obtener todas las líneas del pedido.");
+    lineItemEdges.push(...(nextOrder.lineItems?.edges ?? []));
+    pageInfo = nextOrder.lineItems?.pageInfo;
+  }
+
+  order = { ...order, lineItems: { ...order.lineItems, edges: lineItemEdges } };
+  return order;
+}
+
+function getDocumentType(syncLog: { responseData: string | null }, configuredType: HoldedDocType | "smart") {
+  try {
+    const documentType = JSON.parse(syncLog.responseData ?? "{}").documentType;
+    if (["invoice", "salesreceipt", "salesorder", "waybill"].includes(documentType)) {
+      return documentType as HoldedDocType;
+    }
+  } catch {
+    // Legacy logs may not contain JSON response data.
+  }
+
+  return configuredType === "smart" ? null : configuredType;
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -111,6 +153,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const formData     = await request.formData();
   const shopifyGqlId = String(formData.get("shopifyOrderId") ?? "").trim();
+  const force        = formData.get("force") === "true";
 
   if (!shopifyGqlId) {
     return Response.json({ ok: false, error: "shopifyOrderId es requerido." }, { status: 400 });
@@ -131,13 +174,44 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return Response.json({ ok: false, error: "API Key de Holded no configurada." }, { status: 400 });
   }
 
-  // Fetch order data
+  const shopifyRestId = shopifyGqlId.replace(/^gid:\/\/shopify\/Order\//, "");
+  const docType = (credentials.holded_doc_type ?? "smart") as "smart" | HoldedDocType;
+
+  if (!force) {
+    const existingLog = await prisma.syncLog.findFirst({
+      where: {
+        shopId: shop.id,
+        syncType: "ORDER",
+        shopifyId: shopifyRestId,
+        status: "SUCCESS",
+        erpName: "holded",
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existingLog?.externalId) {
+      const existingDocType = getDocumentType(existingLog, docType);
+      return Response.json({
+        ok: true,
+        erpId: existingLog.externalId,
+        docUrl: existingDocType ? holdedDocUrl(existingDocType, existingLog.externalId) : null,
+        alreadySynced: true,
+      });
+    }
+  }
+
   let gqlOrder: any;
   if (adminGraphql) {
-    const gqlData = await adminGraphql(ORDER_QUERY, { variables: { id: shopifyGqlId } });
-    gqlOrder = gqlData?.data?.order;
+    gqlOrder = await fetchCompleteOrder(async (lineItemsAfter) => {
+      const gqlData = await adminGraphql(ORDER_QUERY, {
+        variables: { id: shopifyGqlId, lineItemsAfter: lineItemsAfter ?? null },
+      });
+      return gqlData?.data?.order;
+    });
   } else {
-    gqlOrder = await fetchOrderViaRest(shopDomain, accessToken, shopifyGqlId);
+    gqlOrder = await fetchCompleteOrder((lineItemsAfter) =>
+      fetchOrderViaRest(shopDomain, accessToken, shopifyGqlId, lineItemsAfter),
+    );
   }
 
   if (!gqlOrder) {
@@ -146,14 +220,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const order = gqlOrderToRest(gqlOrder);
 
-  const docType     = (credentials.holded_doc_type ?? "smart") as "smart" | HoldedDocType;
   const serialNum   = credentials.holded_serial || undefined;
   const autoApprove = credentials.holded_auto_approve === "true";
 
   const controller = new HoldedController(credentials.apikey, { docType, serialNum, autoApprove });
   const result     = await controller.syncOrderToERP(order, shop.id);
-
-  const shopifyRestId = shopifyGqlId.replace(/^gid:\/\/shopify\/Order\//, "");
 
   if (result.success && result.erpId) {
     await prisma.syncLog.create({
@@ -166,12 +237,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         erpName:       "holded",
         integrationId: integration.id,
         requestData:   JSON.stringify({ shopifyOrderId: shopifyGqlId }),
-        responseData:  JSON.stringify({ erpId: result.erpId }),
+        responseData:  JSON.stringify({ erpId: result.erpId, documentType: result.documentType }),
       },
     }).catch(() => null);
 
-    const resolvedDocType: HoldedDocType = docType === "smart" ? "invoice" : docType as HoldedDocType;
-    const docUrl = holdedDocUrl(resolvedDocType, String(result.erpId));
+    const resolvedDocType = result.documentType as HoldedDocType | undefined;
+    const docUrl = resolvedDocType ? holdedDocUrl(resolvedDocType, String(result.erpId)) : null;
     return Response.json({ ok: true, erpId: result.erpId, docUrl });
   }
 

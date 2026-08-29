@@ -49,6 +49,7 @@ function BlockExtension() {
     try {
       const form = new FormData();
       form.append("shopifyOrderId", orderId);
+      if (status?.synced) form.append("force", "true");
 
       const res = await fetch("/api/holded-sync-order", {
         method: "POST",
@@ -85,7 +86,7 @@ function BlockExtension() {
               {status?.synced ? (
                 <s-badge tone="success">Sincronizado</s-badge>
               ) : (
-                <s-badge tone="attention">No sincronizado</s-badge>
+                <s-badge tone="caution">No sincronizado</s-badge>
               )}
             </s-stack>
 

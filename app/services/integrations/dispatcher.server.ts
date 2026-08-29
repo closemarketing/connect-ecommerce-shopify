@@ -137,7 +137,7 @@ export async function dispatchOrderSync(
 					await logOrderSync(
 						shopId,
 						order.id.toString(),
-						Number(result.erpId) || 0,
+						result.erpId,
 						{ orderNumber: order.order_number, integration: name },
 						result,
 						undefined,

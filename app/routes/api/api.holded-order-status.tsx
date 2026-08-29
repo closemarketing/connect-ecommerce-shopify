@@ -53,8 +53,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (integration) {
     const creds      = await getCredentials(shopDomain, integration.id) as Record<string, string>;
     const docType    = (creds.holded_doc_type ?? "invoice") as HoldedDocType | "smart";
-    const resolved: HoldedDocType = docType === "smart" ? "invoice" : docType;
-    docUrl = holdedDocUrl(resolved, syncLog.externalId);
+    let resolved: HoldedDocType | null = docType === "smart" ? null : docType;
+    try {
+      const loggedType = JSON.parse(syncLog.responseData ?? "{}").documentType;
+      if (["invoice", "salesreceipt", "salesorder", "waybill"].includes(loggedType)) {
+        resolved = loggedType as HoldedDocType;
+      }
+    } catch {
+      // Legacy logs may not contain JSON response data.
+    }
+    docUrl = resolved ? holdedDocUrl(resolved, syncLog.externalId) : null;
   }
 
   return Response.json({
