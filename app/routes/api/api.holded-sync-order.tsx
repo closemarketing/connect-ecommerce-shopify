@@ -7,6 +7,31 @@ import type { HoldedDocType } from "~/services/erp/holded/holded.service";
 import { getExtensionShop } from "~/utils/verify-extension-token.server";
 
 const SHOPIFY_API_VERSION = "2025-10";
+const EXTENSION_CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "https://extensions.shopifycdn.com",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+class ShopifyOrderAccessError extends Error {}
+
+function json(data: unknown, init: ResponseInit = {}) {
+  return Response.json(data, {
+    ...init,
+    headers: { ...EXTENSION_CORS_HEADERS, ...init.headers },
+  });
+}
+
+function withExtensionCors(response: Response) {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(EXTENSION_CORS_HEADERS)) headers.set(key, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+export const loader = async ({ request }: ActionFunctionArgs) => {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: EXTENSION_CORS_HEADERS });
+  return json({ ok: false, error: "Método no permitido." }, { status: 405 });
+};
 
 const ORDER_QUERY = `
   query getOrder($id: ID!, $lineItemsAfter: String) {
@@ -86,6 +111,8 @@ async function fetchOrderViaRest(
     }),
   });
   const json = await res.json() as any;
+  const error = json?.errors?.[0]?.message;
+  if (error) throw new ShopifyOrderAccessError(error);
   return json?.data?.order ?? null;
 }
 
@@ -122,6 +149,22 @@ function getDocumentType(syncLog: { responseData: string | null }, configuredTyp
   return configuredType === "smart" ? null : configuredType;
 }
 
+async function getSyncRequestData(request: Request) {
+  if (request.headers.get("content-type")?.includes("application/json")) {
+    const body = await request.json() as { shopifyOrderId?: unknown; force?: unknown };
+    return {
+      shopifyGqlId: String(body.shopifyOrderId ?? "").trim(),
+      force: body.force === true || body.force === "true",
+    };
+  }
+
+  const formData = await request.formData();
+  return {
+    shopifyGqlId: String(formData.get("shopifyOrderId") ?? "").trim(),
+    force: formData.get("force") === "true",
+  };
+}
+
 export const action = async ({ request }: ActionFunctionArgs) => {
   const isExtension = request.headers.has("Authorization");
 
@@ -132,7 +175,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (isExtension) {
     // Request comes from Admin UI Extension — verify JWT, load session from DB
     const ext = getExtensionShop(request);
-    if (!ext.ok) return ext.response;
+    if (!ext.ok) return withExtensionCors(ext.response);
 
     shopDomain = ext.shop;
     const session = await prisma.session.findFirst({
@@ -140,7 +183,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       orderBy: { expires: "desc" },
     });
     if (!session?.accessToken) {
-      return Response.json({ ok: false, error: "Sesión no encontrada para esta tienda." }, { status: 401 });
+      return json({ ok: false, error: "Sesión no encontrada para esta tienda." }, { status: 401 });
     }
     accessToken = session.accessToken;
   } else {
@@ -151,27 +194,25 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     adminGraphql = (q: string, opts: any) => admin.graphql(q, opts).then((r: any) => r.json());
   }
 
-  const formData     = await request.formData();
-  const shopifyGqlId = String(formData.get("shopifyOrderId") ?? "").trim();
-  const force        = formData.get("force") === "true";
+  const { shopifyGqlId, force } = await getSyncRequestData(request);
 
   if (!shopifyGqlId) {
-    return Response.json({ ok: false, error: "shopifyOrderId es requerido." }, { status: 400 });
+    return json({ ok: false, error: "shopifyOrderId es requerido." }, { status: 400 });
   }
 
   const shop = await prisma.shop.findUnique({ where: { domain: shopDomain } });
   if (!shop) {
-    return Response.json({ ok: false, error: "Tienda no encontrada." }, { status: 404 });
+    return json({ ok: false, error: "Tienda no encontrada." }, { status: 404 });
   }
 
   const integration = await getIntegrationByName("holded");
   if (!integration) {
-    return Response.json({ ok: false, error: "Integración Holded no encontrada." }, { status: 500 });
+    return json({ ok: false, error: "Integración Holded no encontrada." }, { status: 500 });
   }
 
   const credentials = await getCredentials(shopDomain, integration.id) as Record<string, string>;
   if (!credentials.apikey) {
-    return Response.json({ ok: false, error: "API Key de Holded no configurada." }, { status: 400 });
+    return json({ ok: false, error: "API Key de Holded no configurada." }, { status: 400 });
   }
 
   const shopifyRestId = shopifyGqlId.replace(/^gid:\/\/shopify\/Order\//, "");
@@ -191,7 +232,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     if (existingLog?.externalId) {
       const existingDocType = getDocumentType(existingLog, docType);
-      return Response.json({
+      return json({
         ok: true,
         erpId: existingLog.externalId,
         docUrl: existingDocType ? holdedDocUrl(existingDocType, existingLog.externalId) : null,
@@ -201,22 +242,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   let gqlOrder: any;
-  if (adminGraphql) {
-    gqlOrder = await fetchCompleteOrder(async (lineItemsAfter) => {
-      const gqlData = await adminGraphql(ORDER_QUERY, {
-        variables: { id: shopifyGqlId, lineItemsAfter: lineItemsAfter ?? null },
+  try {
+    if (adminGraphql) {
+      gqlOrder = await fetchCompleteOrder(async (lineItemsAfter) => {
+        const gqlData = await adminGraphql(ORDER_QUERY, {
+          variables: { id: shopifyGqlId, lineItemsAfter: lineItemsAfter ?? null },
+        });
+        const error = gqlData?.errors?.[0]?.message;
+        if (error) throw new ShopifyOrderAccessError(error);
+        return gqlData?.data?.order;
       });
-      return gqlData?.data?.order;
-    });
-  } else {
-    gqlOrder = await fetchCompleteOrder((lineItemsAfter) =>
-      fetchOrderViaRest(shopDomain, accessToken, shopifyGqlId, lineItemsAfter),
-    );
+    } else {
+      gqlOrder = await fetchCompleteOrder((lineItemsAfter) =>
+        fetchOrderViaRest(shopDomain, accessToken, shopifyGqlId, lineItemsAfter),
+      );
+    }
+  } catch (error) {
+    if (error instanceof ShopifyOrderAccessError) {
+      return json({
+        ok: false,
+        error: "Shopify no ha autorizado a esta app para acceder a pedidos y datos de cliente. Solicita el acceso a datos de clientes protegidos en Shopify Partners.",
+      }, { status: 403 });
+    }
+    throw error;
   }
 
-  if (!gqlOrder) {
-    return Response.json({ ok: false, error: "Pedido no encontrado en Shopify." }, { status: 404 });
-  }
+  if (!gqlOrder) return json({ ok: false, error: "Pedido no encontrado en Shopify." }, { status: 404 });
 
   const order = gqlOrderToRest(gqlOrder);
 
@@ -243,7 +294,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     const resolvedDocType = result.documentType as HoldedDocType | undefined;
     const docUrl = resolvedDocType ? holdedDocUrl(resolvedDocType, String(result.erpId)) : null;
-    return Response.json({ ok: true, erpId: result.erpId, docUrl });
+    return json({ ok: true, erpId: result.erpId, docUrl });
   }
 
   await prisma.syncLog.create({
@@ -259,5 +310,5 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     },
   }).catch(() => null);
 
-  return Response.json({ ok: false, error: result.error ?? "Error desconocido." }, { status: 500 });
+  return json({ ok: false, error: result.error ?? "Error desconocido." }, { status: 500 });
 };

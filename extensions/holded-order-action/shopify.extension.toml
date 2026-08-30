@@ -3,10 +3,12 @@ uid = "ba8b8762-3a11-521e-00c9-0016a4fba24f67f71b1e"
 
 [[extensions]]
 type = "ui_extension"
-name = "Holded Order Action"
+name = "t:name"
 handle = "holded-order-action"
+
+  [extensions.capabilities]
+  network_access = true
 
   [[extensions.targeting]]
   module = "./src/ActionExtension.tsx"
   target = "admin.order-details.action.render"
-  label = "Enviar a Holded"

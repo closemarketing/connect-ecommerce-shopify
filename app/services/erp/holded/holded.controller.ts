@@ -66,8 +66,8 @@ export class HoldedController implements ERPController {
 			const items = await this.buildInvoiceItems(order);
 
 			const invoiceDate = order.created_at
-				? Math.floor(new Date(order.created_at).getTime() / 1000)
-				: Math.floor(Date.now() / 1000);
+				? new Date(order.created_at).toISOString().slice(0, 10)
+				: new Date().toISOString().slice(0, 10);
 
 			const notes = [
 				`Shopify Order #${order.order_number ?? order.name ?? ""}`,

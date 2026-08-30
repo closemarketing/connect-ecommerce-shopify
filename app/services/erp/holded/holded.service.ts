@@ -53,7 +53,7 @@ export interface HoldedInvoiceItem {
 export interface HoldedInvoice {
 	id?: string;
 	contactId: string;
-	date?: number;          // Unix timestamp
+	date?: string;
 	notes?: string;
 	items?: HoldedInvoiceItem[];
 	salesChannelId?: string;
