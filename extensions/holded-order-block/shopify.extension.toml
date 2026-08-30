@@ -6,6 +6,9 @@ type = "ui_extension"
 name = "Holded Order Block"
 handle = "holded-order-block"
 
+  [extensions.capabilities]
+  network_access = true
+
   [[extensions.targeting]]
   module = "./src/BlockExtension.tsx"
   target = "admin.order-details.block.render"

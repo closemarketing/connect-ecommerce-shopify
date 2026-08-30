@@ -27,7 +27,10 @@ function BlockExtension() {
       return;
     }
 
-    fetch(`/api/holded-order-status?shopifyOrderId=${encodeURIComponent(orderId)}`)
+    shopify.auth.idToken()
+      .then((token) => fetch(`/api/holded-order-status?shopifyOrderId=${encodeURIComponent(orderId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }))
       .then((r) => r.json())
       .then((json: any) => {
         setStatus({
@@ -47,13 +50,14 @@ function BlockExtension() {
     setSyncErr(null);
 
     try {
-      const form = new FormData();
-      form.append("shopifyOrderId", orderId);
-      if (status?.synced) form.append("force", "true");
-
+      const token = await shopify.auth.idToken();
       const res = await fetch("/api/holded-sync-order", {
         method: "POST",
-        body: form,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ shopifyOrderId: orderId, force: Boolean(status?.synced) }),
       });
       const json = (await res.json()) as { ok: boolean; erpId?: string; docUrl?: string; error?: string };
 

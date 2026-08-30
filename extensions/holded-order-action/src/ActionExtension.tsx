@@ -14,12 +14,14 @@ function ActionExtension() {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [erpId, setErpId] = useState<string | null>(null);
   const [docUrl, setDocUrl] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const handleSync = async () => {
     if (!orderId) return;
     setStatus("loading");
     setErrMsg(null);
+    setWarning(null);
 
     try {
       const token = await shopify.auth.idToken();
@@ -31,11 +33,12 @@ function ActionExtension() {
         },
         body: JSON.stringify({ shopifyOrderId: orderId }),
       });
-      const json = (await res.json()) as { ok: boolean; erpId?: string; docUrl?: string; error?: string };
+      const json = (await res.json()) as { ok: boolean; erpId?: string; docUrl?: string; error?: string; warning?: string };
 
       if (json.ok) {
         setErpId(json.erpId ?? null);
         setDocUrl(json.docUrl ?? null);
+        setWarning(json.warning ?? null);
         setStatus("success");
       } else {
         setErrMsg(json.error ?? t("unknown_error"));
@@ -75,6 +78,7 @@ function ActionExtension() {
                   {t("view_document")}
                 </s-link>
               )}
+              {warning && <s-text tone="caution">{warning}</s-text>}
             </s-stack>
           </s-banner>
         )}

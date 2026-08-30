@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
-import { getIntegrationByName, getCredentials } from "~/models/Integration.server";
+import { getIntegrationByName, getCredentials, isIntegrationActive } from "~/models/Integration.server";
 import { HoldedController, holdedDocUrl } from "~/services/erp/holded/holded.controller";
 import type { HoldedDocType } from "~/services/erp/holded/holded.service";
 import { getExtensionShop } from "~/utils/verify-extension-token.server";
@@ -43,11 +43,17 @@ const ORDER_QUERY = `
       customer { firstName lastName email }
       lineItems(first: 250, after: $lineItemsAfter) {
         edges {
-          node { title quantity sku originalUnitPriceSet { shopMoney { amount } } }
+          node {
+            title
+            quantity
+            sku
+            originalUnitPriceSet { shopMoney { amount } }
+            discountAllocations { allocatedAmountSet { shopMoney { amount } } }
+          }
         }
         pageInfo { hasNextPage endCursor }
       }
-      billingAddress { address1 address2 city zip countryCode company phone }
+      billingAddress { firstName lastName address1 address2 city zip countryCode company phone }
       shippingLines(first: 5) { edges { node { title originalPriceSet { shopMoney { amount } } } } }
       note
       createdAt
@@ -70,7 +76,10 @@ function gqlOrderToRest(gqlOrder: any): any {
       email:      gqlOrder.customer?.email     ?? gqlOrder.email ?? "",
     },
     billing_address: {
-      name:         [gqlOrder.customer?.firstName, gqlOrder.customer?.lastName].filter(Boolean).join(" "),
+      name:         [
+        gqlOrder.customer?.firstName ?? billing.firstName,
+        gqlOrder.customer?.lastName ?? billing.lastName,
+      ].filter(Boolean).join(" "),
       company:      billing.company     ?? "",
       address1:     billing.address1    ?? "",
       address2:     billing.address2    ?? "",
@@ -84,6 +93,9 @@ function gqlOrderToRest(gqlOrder: any): any {
       quantity: e.node.quantity,
       sku:      e.node.sku ?? "",
       price:    e.node.originalUnitPriceSet?.shopMoney?.amount ?? "0",
+      discount_allocations: (e.node.discountAllocations ?? []).map((discount: any) => ({
+        amount: discount.allocatedAmountSet?.shopMoney?.amount ?? "0",
+      })),
     })),
     shipping_lines: (gqlOrder.shippingLines?.edges ?? []).map((e: any) => ({
       title: e.node.title,
@@ -179,7 +191,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     shopDomain = ext.shop;
     const session = await prisma.session.findFirst({
-      where:   { shop: shopDomain },
+      where:   { shop: shopDomain, isOnline: false },
       orderBy: { expires: "desc" },
     });
     if (!session?.accessToken) {
@@ -216,7 +228,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   const shopifyRestId = shopifyGqlId.replace(/^gid:\/\/shopify\/Order\//, "");
-  const docType = (credentials.holded_doc_type ?? "smart") as "smart" | HoldedDocType;
+  const active = await isIntegrationActive(shopDomain, "holded");
+  if (!active) return json({ ok: false, error: "La integración Holded está desactivada para esta tienda." }, { status: 403 });
+
+  const docType = (credentials.holded_doc_type ?? "invoice") as "smart" | HoldedDocType;
 
   if (!force) {
     const existingLog = await prisma.syncLog.findFirst({
@@ -278,23 +293,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const result     = await controller.syncOrderToERP(order, shop.id);
 
   if (result.success && result.erpId) {
-    await prisma.syncLog.create({
-      data: {
-        shopId:        shop.id,
-        syncType:      "ORDER",
-        shopifyId:     shopifyRestId,
-        externalId:    String(result.erpId),
-        status:        "SUCCESS",
-        erpName:       "holded",
-        integrationId: integration.id,
-        requestData:   JSON.stringify({ shopifyOrderId: shopifyGqlId }),
-        responseData:  JSON.stringify({ erpId: result.erpId, documentType: result.documentType }),
-      },
-    }).catch(() => null);
+    let warning = result.warning;
+    try {
+      await prisma.syncLog.create({
+        data: {
+          shopId:        shop.id,
+          syncType:      "ORDER",
+          shopifyId:     shopifyRestId,
+          externalId:    String(result.erpId),
+          status:        "SUCCESS",
+          erpName:       "holded",
+          integrationId: integration.id,
+          requestData:   JSON.stringify({ shopifyOrderId: shopifyGqlId }),
+          responseData:  JSON.stringify({ erpId: result.erpId, documentType: result.documentType, warning }),
+        },
+      });
+    } catch {
+      warning = `El documento ${result.erpId} se creó en Holded, pero no se pudo guardar el registro local. No reintentes el envío.`;
+    }
 
     const resolvedDocType = result.documentType as HoldedDocType | undefined;
     const docUrl = resolvedDocType ? holdedDocUrl(resolvedDocType, String(result.erpId)) : null;
-    return json({ ok: true, erpId: result.erpId, docUrl });
+    return json({ ok: true, erpId: result.erpId, docUrl, warning });
   }
 
   await prisma.syncLog.create({

@@ -41,7 +41,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const lastSyncAt     = (credentials as any).last_sync_at || null;
   const intervalHours  = parseInt((credentials as any).sync_interval_hours || "24", 10);
-  const holdedDocType  = (credentials as any).holded_doc_type  || "smart";
+  const holdedDocType  = (credentials as any).holded_doc_type  || "invoice";
   const holdedSerial   = (credentials as any).holded_serial    || "";
   const holdedAutoApprove = (credentials as any).holded_auto_approve === "true";
   const nextSyncAt     = lastSyncAt
@@ -98,7 +98,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (intent === "save_credentials") {
     const apikey          = String(formData.get("apikey") ?? "").trim();
     const syncIntervalHrs = String(formData.get("sync_interval_hours") ?? "24").trim();
-    const holdedDocType   = String(formData.get("holded_doc_type") ?? "smart").trim();
+    const holdedDocType   = String(formData.get("holded_doc_type") ?? "invoice").trim();
     const holdedSerial    = String(formData.get("holded_serial") ?? "").trim();
     const holdedAutoApprove = formData.get("holded_auto_approve") === "true" ? "true" : "false";
 
@@ -250,7 +250,7 @@ export default function HoldedPage() {
   const [syncIntervalHours, setSyncIntervalHours] = useState(String(intervalHours));
   const [isEditingKey, setIsEditingKey]           = useState(!isConfigured);
   const [showSaveBar, setShowSaveBar]             = useState(false);
-  const [docType, setDocType]                     = useState(initDocType ?? "smart");
+  const [docType, setDocType]                     = useState(initDocType ?? "invoice");
   const [serialNum, setSerialNum]                 = useState(initSerial ?? "");
   const [autoApprove, setAutoApprove]             = useState(initAutoApprove ?? false);
 
@@ -301,7 +301,7 @@ export default function HoldedPage() {
   const handleDiscard = () => {
     setApiKey(creds.apikey ?? "");
     setSyncIntervalHours(String(intervalHours));
-    setDocType(initDocType ?? "smart");
+    setDocType(initDocType ?? "invoice");
     setSerialNum(initSerial ?? "");
     setAutoApprove(initAutoApprove ?? false);
     setIsEditingKey(!isConfigured);

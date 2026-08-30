@@ -6,14 +6,31 @@ import { holdedDocUrl } from "~/services/erp/holded/holded.controller";
 import type { HoldedDocType } from "~/services/erp/holded/holded.service";
 import { getExtensionShop } from "~/utils/verify-extension-token.server";
 
+const EXTENSION_CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "https://extensions.shopifycdn.com",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+};
+
+function json(data: unknown, init: ResponseInit = {}) {
+  return Response.json(data, { ...init, headers: { ...EXTENSION_CORS_HEADERS, ...init.headers } });
+}
+
+function withExtensionCors(response: Response) {
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(EXTENSION_CORS_HEADERS)) headers.set(key, value);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: EXTENSION_CORS_HEADERS });
   const isExtension = request.headers.has("Authorization");
 
   let shopDomain: string;
 
   if (isExtension) {
     const ext = getExtensionShop(request);
-    if (!ext.ok) return ext.response;
+    if (!ext.ok) return withExtensionCors(ext.response);
     shopDomain = ext.shop;
   } else {
     const { session } = await authenticate.admin(request);
@@ -25,12 +42,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const shopifyRestId = shopifyGqlId.replace(/^gid:\/\/shopify\/Order\//, "");
 
   if (!shopifyRestId) {
-    return Response.json({ synced: false, error: "shopifyOrderId requerido" }, { status: 400 });
+    return json({ synced: false, error: "shopifyOrderId requerido" }, { status: 400 });
   }
 
   const shop = await prisma.shop.findUnique({ where: { domain: shopDomain } });
   if (!shop) {
-    return Response.json({ synced: false, error: "Tienda no encontrada" }, { status: 404 });
+    return json({ synced: false, error: "Tienda no encontrada" }, { status: 404 });
   }
 
   const syncLog = await prisma.syncLog.findFirst({
@@ -45,7 +62,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
 
   if (!syncLog?.externalId) {
-    return Response.json({ synced: false });
+    return json({ synced: false });
   }
 
   const integration = await getIntegrationByName("holded");
@@ -65,7 +82,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     docUrl = resolved ? holdedDocUrl(resolved, syncLog.externalId) : null;
   }
 
-  return Response.json({
+  return json({
     synced:   true,
     erpId:    syncLog.externalId,
     docUrl,

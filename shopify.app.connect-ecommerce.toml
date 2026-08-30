@@ -20,4 +20,4 @@ automatically_update_urls_on_dev = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,read_products,read_inventory,write_inventory,read_customers,read_locations,read_orders,write_draft_orders"
+scopes = "write_products,read_products,read_inventory,write_inventory,read_customers,read_locations,read_orders"

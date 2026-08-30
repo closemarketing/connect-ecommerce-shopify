@@ -84,8 +84,13 @@ export class HoldedController implements ERPController {
 
 			const doc = await this.createDocument(resolvedDocType, payload);
 
+			let warning: string | undefined;
 			if (this.orderSettings.autoApprove) {
-				await this.service.approveDocument(resolvedDocType, doc.id);
+				try {
+					await this.service.approveDocument(resolvedDocType, doc.id);
+				} catch (err) {
+					warning = `Documento creado, pero no se pudo validar automáticamente: ${err instanceof Error ? err.message : String(err)}`;
+				}
 			}
 
 			return {
@@ -94,6 +99,7 @@ export class HoldedController implements ERPController {
 				shopifyId: String(order.id),
 				action:    "created",
 				documentType: resolvedDocType,
+				warning,
 			};
 		} catch (err) {
 			return {

@@ -20,7 +20,7 @@ import {
 const CONTROLLER_FACTORIES: Record<string, (creds: Record<string, string>) => ERPController> = {
 	clientify: (creds) => new ClientifyController(creds.apikey ?? ""),
 	holded: (creds) => {
-		const docType     = (creds.holded_doc_type ?? "smart") as any;
+		const docType     = (creds.holded_doc_type ?? "invoice") as any;
 		const serialNum   = creds.holded_serial || undefined;
 		const autoApprove = creds.holded_auto_approve === "true";
 		return new HoldedController(creds.apikey ?? "", { docType, serialNum, autoApprove });

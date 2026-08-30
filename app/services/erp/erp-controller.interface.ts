@@ -13,6 +13,8 @@ export interface SyncResult {
 	action?: "created" | "updated" | "skipped";
 	/** Type of document created by the ERP, when applicable */
 	documentType?: string;
+	/** Non-fatal warning after the ERP record was created */
+	warning?: string;
 }
 
 /**

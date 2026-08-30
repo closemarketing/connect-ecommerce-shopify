@@ -2,7 +2,6 @@ import { useFetcher, useLoaderData } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
-import { getIntegrationByName, getCredentials } from "~/models/Integration.server";
 import { holdedDocUrl } from "~/services/erp/holded/holded.controller";
 import type { HoldedDocType } from "~/services/erp/holded/holded.service";
 
@@ -58,13 +57,16 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   let existingDocUrl: string | null = null;
   if (syncLog?.externalId) {
-    const integration = await getIntegrationByName("holded");
-    if (integration) {
-      const creds = await getCredentials(session.shop, integration.id) as Record<string, string>;
-      const docType = (creds.holded_doc_type ?? "invoice") as HoldedDocType;
-      const resolvedType: HoldedDocType = docType === ("smart" as any) ? "invoice" : docType;
-      existingDocUrl = holdedDocUrl(resolvedType, String(syncLog.externalId));
+    let resolvedType: HoldedDocType | null = null;
+    try {
+      const documentType = JSON.parse(syncLog.responseData ?? "{}").documentType;
+      if (["invoice", "salesreceipt", "salesorder", "waybill"].includes(documentType)) {
+        resolvedType = documentType as HoldedDocType;
+      }
+    } catch {
+      // Legacy logs may not contain JSON response data.
     }
+    existingDocUrl = resolvedType ? holdedDocUrl(resolvedType, String(syncLog.externalId)) : null;
   }
 
   return { order, syncLog, numericId, gqlId, existingDocUrl };
