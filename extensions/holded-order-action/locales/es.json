@@ -1,0 +1,15 @@
+{
+  "name": "Enviar pedido a Holded",
+  "action_title": "Enviar pedido a Holded",
+  "send": "Enviar pedido a Holded",
+  "close": "Cerrar",
+  "cancel": "Cancelar",
+  "description": "Sincroniza este pedido con Holded para generar el documento correspondiente.",
+  "sending": "Enviando pedido a Holded...",
+  "success_title": "Pedido enviado correctamente",
+  "holded_id": "ID Holded: {{erpId}}",
+  "view_document": "Ver documento en Holded",
+  "error_title": "Error",
+  "unknown_error": "Error desconocido",
+  "network_error": "Error de red"
+}

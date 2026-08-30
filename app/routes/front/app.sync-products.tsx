@@ -6,7 +6,7 @@ import {
   getCredentials,
   isIntegrationActive,
 } from "~/models/Integration.server";
-import { runHoldedSync } from "~/services/holded/sync-products-from-holded.server";
+import { runHoldedSync } from "~/services/erp/holded/sync-products-from-holded.server";
 
 /**
  * POST /api/sync/products
