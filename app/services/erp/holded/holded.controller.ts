@@ -1,11 +1,28 @@
 import type { ERPController, SyncResult } from "../erp-controller.interface";
 import { HoldedService } from "./holded.service";
-import type { HoldedContact, HoldedInvoiceItem } from "./holded.service";
+import type { HoldedContact, HoldedInvoice, HoldedInvoiceItem, HoldedDocType } from "./holded.service";
 
 const NOT_IMPLEMENTED = (method: string): SyncResult => ({
 	success: false,
 	error:   `Holded — ${method} not yet implemented.`,
 });
+
+export interface HoldedOrderSettings {
+	docType: "smart" | HoldedDocType;
+	serialNum?: string;
+	autoApprove: boolean;
+}
+
+const HOLDED_DOC_URL: Record<HoldedDocType, string> = {
+	invoice:      "https://app.holded.com/invoicing/invoices",
+	salesreceipt: "https://app.holded.com/invoicing/salesreceipts",
+	salesorder:   "https://app.holded.com/invoicing/salesorders",
+	waybill:      "https://app.holded.com/invoicing/waybills",
+};
+
+export function holdedDocUrl(doctype: HoldedDocType, id: string): string {
+	return `${HOLDED_DOC_URL[doctype]}/${id}`;
+}
 
 /**
  * Holded ERP controller.
@@ -15,13 +32,17 @@ const NOT_IMPLEMENTED = (method: string): SyncResult => ({
  *
  * Sync flow (Shopify → Holded):
  *   1. Upsert contact from Shopify customer data
- *   2. Upsert products from order line items
- *   3. Create invoice linked to the contact
+ *   2. Build document items from order line items
+ *   3. Create document (invoice / salesreceipt / salesorder / waybill)
+ *   4. Optionally approve the document
  */
 export class HoldedController implements ERPController {
 	private service: HoldedService;
 
-	constructor(private readonly apikey: string) {
+	constructor(
+		private readonly apikey: string,
+		private readonly orderSettings: HoldedOrderSettings = { docType: "smart", autoApprove: false },
+	) {
 		this.service = new HoldedService(apikey);
 	}
 
@@ -38,34 +59,47 @@ export class HoldedController implements ERPController {
 
 	async syncOrderToERP(order: any, _shopId: number): Promise<SyncResult> {
 		try {
-			// 1. Upsert contact
-			const contactId = await this.upsertContact(order);
+			const { contactId, contactCode } = await this.upsertContact(order);
 
-			// 2. Build invoice items — upsert products when possible
+			const resolvedDocType = this.resolveDocType(contactCode);
+
 			const items = await this.buildInvoiceItems(order);
 
-			// 3. Create invoice
 			const invoiceDate = order.created_at
-				? Math.floor(new Date(order.created_at).getTime() / 1000)
-				: Math.floor(Date.now() / 1000);
+				? new Date(order.created_at).toISOString().slice(0, 10)
+				: new Date().toISOString().slice(0, 10);
 
 			const notes = [
 				`Shopify Order #${order.order_number ?? order.name ?? ""}`,
 				order.note ? `Note: ${order.note}` : "",
 			].filter(Boolean).join(" | ");
 
-			const invoice = await this.service.createInvoice({
+			const payload: HoldedInvoice = {
 				contactId,
 				date:  invoiceDate,
 				notes,
 				items,
-			});
+				...(this.orderSettings.serialNum && { numSerie: this.orderSettings.serialNum }),
+			};
+
+			const doc = await this.createDocument(resolvedDocType, payload);
+
+			let warning: string | undefined;
+			if (this.orderSettings.autoApprove) {
+				try {
+					await this.service.approveDocument(resolvedDocType, doc.id);
+				} catch (err) {
+					warning = `Documento creado, pero no se pudo validar automáticamente: ${err instanceof Error ? err.message : String(err)}`;
+				}
+			}
 
 			return {
 				success:   true,
-				erpId:     invoice.id,
+				erpId:     doc.id,
 				shopifyId: String(order.id),
 				action:    "created",
+				documentType: resolvedDocType,
+				warning,
 			};
 		} catch (err) {
 			return {
@@ -88,49 +122,71 @@ export class HoldedController implements ERPController {
 
 	// ── Private helpers ───────────────────────────────────────────────────────
 
+	private resolveDocType(contactCode: string): HoldedDocType {
+		if (this.orderSettings.docType !== "smart") {
+			return this.orderSettings.docType as HoldedDocType;
+		}
+		// Smart mode: no VAT/NIF → salesreceipt; VAT/NIF present → invoice
+		return contactCode ? "invoice" : "salesreceipt";
+	}
+
+	private async createDocument(doctype: HoldedDocType, data: HoldedInvoice): Promise<{ id: string }> {
+		switch (doctype) {
+			case "invoice":
+				return this.service.createInvoice(data);
+			case "salesreceipt":
+				return this.service.createSalesReceipt(data);
+			case "salesorder":
+				return this.service.createSalesOrder(data);
+			case "waybill":
+				return this.service.createWaybill(data);
+		}
+	}
+
 	/**
 	 * Find or create a Holded contact from a Shopify order's customer/billing data.
-	 * Returns the Holded contact ID.
+	 * Returns contactId and contactCode (VAT/NIF, empty string if none).
 	 */
-	private async upsertContact(order: any): Promise<string> {
+	private async upsertContact(order: any): Promise<{ contactId: string; contactCode: string }> {
 		const billing  = order.billing_address ?? {};
 		const customer = order.customer ?? {};
 
 		const name =
+			billing.company ||
 			billing.name ||
 			[customer.first_name, customer.last_name].filter(Boolean).join(" ") ||
-			billing.company ||
 			"Unknown Customer";
 
 		const email = customer.email || order.email || billing.email;
+		const contactCode = billing.vat ?? "";
 
-		// Try to find existing contact by email
 		if (email) {
 			const existing = await this.service.searchContacts(email);
 			const match    = existing.find(
 				(c) => c.email?.toLowerCase() === email.toLowerCase(),
 			);
-			if (match?.id) return match.id;
+			if (match?.id) return { contactId: match.id, contactCode: match.taxid ?? contactCode };
 		}
 
 		const contactData: HoldedContact = {
 			name,
 			type: "client",
-			...(email                          && { email }),
-			...(customer.phone || billing.phone && { phone: customer.phone || billing.phone }),
-			...(billing.address1               && { address: [billing.address1, billing.address2].filter(Boolean).join(", ") }),
-			...(billing.city                   && { city: billing.city }),
-			...(billing.zip                    && { postalCode: billing.zip }),
-			...(billing.country_code           && { countryCode: billing.country_code }),
-			...(billing.company                && { name: billing.company, contactPersons: [{ name, email }] }),
+			...(email                                         && { email }),
+			...(customer.phone || billing.phone               ? { phone: customer.phone || billing.phone } : {}),
+			...(billing.address1                              && { address: [billing.address1, billing.address2].filter(Boolean).join(", ") }),
+			...(billing.city                                  && { city: billing.city }),
+			...(billing.zip                                   && { postalCode: billing.zip }),
+			...(billing.country_code                          && { countryCode: billing.country_code }),
+			...(contactCode                                   && { taxid: contactCode }),
+			...(billing.company && { contactPersons: [{ name: [customer.first_name, customer.last_name].filter(Boolean).join(" ") || name, email }] }),
 		};
 
 		const created = await this.service.createContact(contactData);
-		return created.id;
+		return { contactId: created.id, contactCode };
 	}
 
 	/**
-	 * Maps Shopify line items to Holded invoice items.
+	 * Maps Shopify line items to Holded document items.
 	 * Tries to match existing Holded products by SKU; falls back to plain name lines.
 	 */
 	private async buildInvoiceItems(order: any): Promise<HoldedInvoiceItem[]> {
@@ -145,7 +201,6 @@ export class HoldedController implements ERPController {
 				0,
 			) ?? 0;
 
-			// Try to find product in Holded by SKU
 			let productId: string | undefined;
 			if (li.sku) {
 				try {
@@ -168,9 +223,8 @@ export class HoldedController implements ERPController {
 			});
 		}
 
-		// Shipping line
 		if (order.shipping_lines?.length > 0) {
-			const shipping = order.shipping_lines[0];
+			const shipping      = order.shipping_lines[0];
 			const shippingPrice = parseFloat(shipping.price ?? "0");
 			if (shippingPrice > 0) {
 				items.push({

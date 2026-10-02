@@ -29,3 +29,5 @@ logs/
 
 # Claude Code internal state
 .claude/
+.agents/
+.aider-desk/

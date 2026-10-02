@@ -21,7 +21,9 @@ export default function IntegrationLayout() {
 
 	const tabs = [
 		{ to: `/app/integrations/${def.name}`,           label: t("integrationDetail.tabSettings"), end: true  },
-		{ to: `/app/integrations/${def.name}/sync-logs`, label: t("integrationDetail.tabSyncLogs"), end: false },
+		...(def.name === "holded" ? [] : [
+			{ to: `/app/integrations/${def.name}/sync-logs`, label: t("integrationDetail.tabSyncLogs"), end: false },
+		]),
 		...(def.subRoutes ?? []).map((sr) => ({
 			to:  `/app/${sr.path}`,
 			label: sr.label,

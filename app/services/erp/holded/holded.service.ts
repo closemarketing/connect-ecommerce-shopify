@@ -53,7 +53,7 @@ export interface HoldedInvoiceItem {
 export interface HoldedInvoice {
 	id?: string;
 	contactId: string;
-	date?: number;          // Unix timestamp
+	date?: string;
 	notes?: string;
 	items?: HoldedInvoiceItem[];
 	salesChannelId?: string;
@@ -73,6 +73,15 @@ export interface HoldedListResponse<T> {
  * Uses Bearer token (Authorization: Bearer <apikey>).
  * Each method maps 1-to-1 to one API endpoint.
  */
+export type HoldedDocType = "invoice" | "salesreceipt" | "salesorder" | "waybill";
+
+const DOC_PATH: Record<HoldedDocType, string> = {
+	invoice:      "invoices",
+	salesreceipt: "sales-receipts",
+	salesorder:   "sales-orders",
+	waybill:      "waybills",
+};
+
 export class HoldedService {
 	constructor(private readonly apikey: string) {}
 
@@ -225,6 +234,30 @@ export class HoldedService {
 			method: "POST",
 			body:   JSON.stringify(data),
 		});
+	}
+
+	// ── Sales Orders ──────────────────────────────────────────────────────────
+
+	async createSalesOrder(data: HoldedInvoice): Promise<{ id: string }> {
+		return this.request<{ id: string }>("/sales-orders", {
+			method: "POST",
+			body:   JSON.stringify(data),
+		});
+	}
+
+	// ── Waybills ──────────────────────────────────────────────────────────────
+
+	async createWaybill(data: HoldedInvoice): Promise<{ id: string }> {
+		return this.request<{ id: string }>("/waybills", {
+			method: "POST",
+			body:   JSON.stringify(data),
+		});
+	}
+
+	// ── Document approval ─────────────────────────────────────────────────────
+
+	async approveDocument(doctype: HoldedDocType, id: string): Promise<void> {
+		await this.request(`/${DOC_PATH[doctype]}/${id}/post`, { method: "POST" });
 	}
 
 	// ── Taxes ─────────────────────────────────────────────────────────────────

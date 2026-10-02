@@ -1,6 +1,6 @@
-import prisma from "../../db.server";
-import logger from "../../utils/logger.server";
-import { HoldedService, parseHoldedPrice } from "../erp/holded/holded.service";
+import prisma from "~/db.server";
+import logger from "~/utils/logger.server";
+import { HoldedService, parseHoldedPrice } from "./holded.service";
 
 const SHOPIFY_API_VERSION = "2025-10";
 
@@ -351,7 +351,7 @@ export async function runHoldedSync(params: SyncParams): Promise<void> {
     const holded = new HoldedService(holdedApiKey);
 
     // Fetch all Holded products via paginated API v2
-    const allProducts: import("../erp/holded/holded.service").HoldedProduct[] = [];
+    const allProducts: import("./holded.service").HoldedProduct[] = [];
     let cursor: string | undefined;
     do {
       const page = await holded.listProducts(100, cursor);

@@ -15,7 +15,6 @@ This app must meet and maintain the [Built for Shopify](https://shopify.dev/docs
 - Prioritize performance: avoid unnecessary Admin API calls, blocking UI work, and storefront or checkout impact.
 - Process only the customer data required for the integration. Request and document Protected Customer Data access before using orders or personal fields, and keep security and privacy requirements current.
 - Before a release, check the current Built for Shopify criteria and app status in the Partner Dashboard **Distribution** page. Built for Shopify status requires Shopify evaluation after all prerequisites are met; it is not conferred by a code change alone.
-
 ## Commands
 
 ```bash
@@ -32,14 +31,14 @@ npm run lint         # ESLint
 
 This repository has no `APP_VERSION` environment variable. Use the Git semver tag as the repository release version; Shopify CLI creates and publishes the app version separately.
 
-1. From an up-to-date `main`, run `npm run build`, `npm run test:ci`, and the relevant extension typechecks (`npm --prefix extensions/<extension> run typecheck`).
-2. Update `CHANGELOG.md` with the user-facing changes since the previous tag. Update the relevant documentation in `docs/` when models, Prisma migrations, routes, integrations, credentials, Shopify scopes/extensions, or deployment behavior have changed. Skip documentation-only release notes for trivial formatting, comment-only, test-only, or migration-only changes.
-3. Deploy app configuration and extensions with `npm run deploy` only after the production backend is deployed and its environment variables and migrations are ready. Review the resulting Shopify app version before publishing it with `shopify app release --version <version>` when required.
-4. Create and push the repository tag with `git tag X.Y.Z` and `git push origin X.Y.Z`.
-5. Create a GitHub release from that tag with `gh release create X.Y.Z`. Write Spanish release notes, grouped by type (for example, "Correcciones de errores", "Mejoras de integración" and "Otras mejoras"), summarizing changes merged into `main` since the previous tag.
+1. Before anything else, run the Shopify App Store self-review with the AI Toolkit: `/shopify-app-store-review` (install the Shopify AI Toolkit first if missing). Fix every finding or document why it does not apply. Do not continue with a failing review.
+2. From an up-to-date `main`, run `npm run build`, `npm run test:ci`, and the relevant extension typechecks (`npm --prefix extensions/<extension> run typecheck`).
+3. Update `CHANGELOG.md` with the user-facing changes since the previous tag. Update the relevant documentation in `docs/` when models, Prisma migrations, routes, integrations, credentials, Shopify scopes/extensions, or deployment behavior have changed. Skip documentation-only release notes for trivial formatting, comment-only, test-only, or migration-only changes.
+4. Deploy app configuration and extensions with `npm run deploy` only after the production backend is deployed and its environment variables and migrations are ready. Review the resulting Shopify app version before publishing it with `shopify app release --version <version>` when required.
+5. Create and push the repository tag with `git tag X.Y.Z` and `git push origin X.Y.Z`.
+6. Create a GitHub release from that tag with `gh release create X.Y.Z`. Write Spanish release notes, grouped by type (for example, "Correcciones de errores", "Mejoras de integración" and "Otras mejoras"), summarizing changes merged into `main` since the previous tag.
 
 Do not deploy, publish a Shopify version, tag, or create a GitHub release unless the user explicitly requests that release.
-
 ## Architecture
 
 ### Routes split
@@ -160,7 +159,6 @@ The main plugin file (`woocommerce-es.php`) defines a `conecom_get_options()` fu
 - **Capability flags over conditionals** — declare what a connector supports in its definition; subsystems check flags rather than `if connector === 'holded'`.
 - **One connector class per ERP** — each class owns its own API calls, field mapping, and error handling; shared logic lives in Helpers.
 - **Add-on pattern** — each ERP connector is a self-contained add-on (separate repo/package in WooCommerce world; separate `app/services/erp/<name>/` module here) that registers itself into the core registry.
-
 
 ## Test Enforcement
 

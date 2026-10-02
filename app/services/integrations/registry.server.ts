@@ -72,6 +72,9 @@ export const INTEGRATION_REGISTRY: IntegrationDefinition[] = [
 				helpText: "Genera tu API Key en Holded > Configuración > Desarrolladores.",
 			},
 		],
+		subRoutes: [
+			{ path: "holded", label: "Configuración de pedidos" },
+		],
 	},
 ];
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { runHoldedSync, type SyncParams } from "../../app/services/holded/sync-products-from-holded.server";
+import { runHoldedSync, type SyncParams } from "../../app/services/erp/holded/sync-products-from-holded.server";
 import prismaMock from "../../app/db.server";
 import {
   mockSimpleProduct,

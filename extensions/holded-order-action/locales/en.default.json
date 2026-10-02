@@ -1,0 +1,15 @@
+{
+  "name": "Send Order to Holded",
+  "action_title": "Send Order to Holded",
+  "send": "Send Order to Holded",
+  "close": "Close",
+  "cancel": "Cancel",
+  "description": "Sync this order with Holded to create the corresponding document.",
+  "sending": "Sending order to Holded...",
+  "success_title": "Order sent successfully",
+  "holded_id": "Holded ID: {{erpId}}",
+  "view_document": "View document in Holded",
+  "error_title": "Error",
+  "unknown_error": "Unknown error",
+  "network_error": "Network error"
+}
